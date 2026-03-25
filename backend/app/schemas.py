@@ -9,6 +9,7 @@ TaskStatus = Literal["queued", "processing", "completed", "failed"]
 InputMode = Literal["vocals_only", "with_backing_track"]
 PitchMode = Literal["auto_scale", "midi_reference", "reference_vocal"]
 PitchStyle = Literal["natural", "autotune"]
+PitchFallbackCategory = Literal["duration_ratio", "low_coverage", "unstable_reference", "octave_jump", "missing_reference", "midi_parse"]
 
 
 class ProcessingSteps(BaseModel):
@@ -22,6 +23,11 @@ class PitchSettings(BaseModel):
     pitchMode: PitchMode = "auto_scale"
     pitchStyle: PitchStyle = "natural"
     pitchStrength: int = 55
+    referenceDurationRatioMin: float = 0.6
+    referenceDurationRatioMax: float = 1.67
+    effectivePitchMode: PitchMode | None = None
+    fallbackReason: str | None = None
+    fallbackCategory: PitchFallbackCategory | None = None
     midiOriginalName: str | None = None
     midiStoredName: str | None = None
     midiPath: str | None = None

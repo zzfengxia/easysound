@@ -103,12 +103,31 @@
                   <option value="natural">自然修音</option>
                   <option value="autotune">Auto-Tune</option>
                 </select>
+                <small class="field-help">自然修音更柔和，尽量保留原唱的滑音和表情；Auto-Tune 吸附更明显，风格化更强。</small>
               </label>
 
               <label class="field-stack">
                 <span>修音强度 <strong id="pitchStrengthValue">55</strong></span>
                 <input id="pitchStrength" name="pitchStrength" type="range" min="0" max="100" value="55" />
+                <small class="field-help">数值越低，修音越轻、更保留原唱；数值越高，吸附越明显、音准会被更积极地拉向目标音。</small>
               </label>
+            </div>
+
+            <div id="reference-threshold-block" class="threshold-block" hidden>
+              <div class="threshold-head">
+                <strong>参考干声时长比例阈值</strong>
+                <small>当参考干声时长 / 待修音频时长 超出这个区间时，会回退为自动修音。</small>
+              </div>
+              <div class="field-inline-grid threshold-grid">
+                <label class="field-stack">
+                  <span>最小比例</span>
+                  <input id="referenceDurationRatioMin" name="referenceDurationRatioMin" type="number" min="0.01" step="0.01" value="0.60" />
+                </label>
+                <label class="field-stack">
+                  <span>最大比例</span>
+                  <input id="referenceDurationRatioMax" name="referenceDurationRatioMax" type="number" min="0.01" step="0.01" value="1.67" />
+                </label>
+              </div>
             </div>
 
             <label class="file-drop is-compact" id="midi-upload-block" hidden>
@@ -159,6 +178,7 @@
 
     <template id="task-template">
       <article class="task-card">
+        <div class="task-fallback-alert" hidden></div>
         <div class="task-head">
           <div>
             <h3 class="task-title"></h3>

@@ -194,6 +194,30 @@ h1 {
   margin-bottom: 0;
 }
 
+.threshold-block {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.threshold-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.threshold-head small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.threshold-grid {
+  margin-top: 0;
+}
+
 .file-title {
   display: block;
   font-weight: 700;
@@ -209,12 +233,14 @@ h1 {
 
 input[type="file"],
 select,
-input[type="range"] {
+input[type="range"],
+input[type="number"] {
   margin-top: 14px;
   width: 100%;
 }
 
-select {
+select,
+input[type="number"] {
   min-height: 42px;
   border-radius: 12px;
   border: 1px solid var(--line);
@@ -344,6 +370,17 @@ legend {
   border: 1px solid var(--line);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.75);
+}
+
+.task-fallback-alert {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(185, 28, 28, 0.18);
+  background: rgba(254, 242, 242, 0.95);
+  color: #b91c1c;
+  font-weight: 700;
+  line-height: 1.5;
 }
 
 .task-head {

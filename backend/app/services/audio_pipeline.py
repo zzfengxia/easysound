@@ -2,11 +2,13 @@
 
 import json
 import logging
+import re
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
 
 from app.core.config import INPUT_MODES, MAX_DURATION_SECONDS, MIN_SAMPLE_RATE, RESULT_DIR, TEMP_DIR
 from app.core.scene_presets import get_scene_preset
+from app.schemas import PitchSettings
 from app.services.audio_metadata import probe_audio
 
 logger = logging.getLogger(__name__)
@@ -87,11 +89,30 @@ class AudioPipeline:
                 temp_dir=temp_dir,
             )
             current_path = Path(corrected["outputPath"])
+            pitch_payload = task.pitch.model_dump()
+            pitch_payload.update({
+                "effectivePitchMode": corrected.get("effectiveMode"),
+                "fallbackReason": corrected.get("fallbackReason"),
+                "fallbackCategory": corrected.get("fallbackCategory"),
+            })
+            updated_pitch = PitchSettings.model_validate(pitch_payload)
+            await self.task_store.update(task.id, pitch=updated_pitch)
+            task = self.task_store.get(task.id) or task
             if corrected.get("note"):
                 await self.task_store.add_processing_note(task.id, corrected["note"])
                 logger.info("修音说明，任务ID=%s，内容=%s", task.id, corrected["note"])
+            if corrected.get("fallbackReason"):
+                await self.task_store.add_warning(task.id, corrected["fallbackReason"])
+                logger.warning(
+                    "修音模式发生回退，任务ID=%s，请求模式=%s，实际模式=%s，原因=%s",
+                    task.id,
+                    corrected.get("requestedMode"),
+                    corrected.get("effectiveMode"),
+                    corrected.get("fallbackReason"),
+                )
             for warning in corrected.get("warnings", []):
-                await self.task_store.add_warning(task.id, warning)
+                if warning != corrected.get("fallbackReason"):
+                    await self.task_store.add_warning(task.id, warning)
                 logger.warning("修音警告，任务ID=%s，内容=%s", task.id, warning)
             if not corrected.get("applied") and corrected.get("note"):
                 await self.task_store.add_warning(task.id, corrected["note"])
@@ -121,7 +142,7 @@ class AudioPipeline:
             await complete_stage("mixdown")
 
         await mark_stage("export", "正在导出最终成品音频。")
-        result_path = RESULT_DIR / f"{task.id}.mp3"
+        result_path = RESULT_DIR / self._build_result_filename(task.originalName)
         result_path.parent.mkdir(parents=True, exist_ok=True)
         await self.providers["audio"].export_final(current_path, result_path)
         await complete_stage("export")
@@ -154,3 +175,11 @@ class AudioPipeline:
             raise RuntimeError(f"音频时长过长，当前最多支持 {MAX_DURATION_SECONDS // 60} 分钟。")
         if metadata["sampleRate"] < MIN_SAMPLE_RATE:
             raise RuntimeError(f"采样率过低，当前最低支持 {MIN_SAMPLE_RATE} Hz。")
+
+    @staticmethod
+    def _build_result_filename(original_name: str) -> str:
+        source_name = original_name or "audio"
+        stem = Path(source_name).stem.strip() or "audio"
+        safe_stem = re.sub(r'[\\/:*?"<>|]+', "_", stem).strip(" .") or "audio"
+        timestamp = int(time())
+        return f"{safe_stem}-处理-{timestamp}.mp3"

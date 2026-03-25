@@ -11,6 +11,8 @@ from app.core.config import (
     DEFAULT_PITCH_STRENGTH,
     DEFAULT_PITCH_STYLE,
     DEFAULT_PROCESSING_STEPS,
+    DEFAULT_REFERENCE_DURATION_RATIO_MAX,
+    DEFAULT_REFERENCE_DURATION_RATIO_MIN,
     INPUT_MODES,
     MAX_FILE_SIZE_BYTES,
     MAX_MIDI_FILE_SIZE_BYTES,
@@ -33,6 +35,8 @@ async def normalize_upload_payload(
     pitch_mode: str = DEFAULT_PITCH_MODE,
     pitch_style: str = DEFAULT_PITCH_STYLE,
     pitch_strength: int = DEFAULT_PITCH_STRENGTH,
+    reference_duration_ratio_min: float = DEFAULT_REFERENCE_DURATION_RATIO_MIN,
+    reference_duration_ratio_max: float = DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     midi_file: UploadFile | None = None,
     reference_vocal_file: UploadFile | None = None,
 ) -> tuple[dict, bytes, bytes | None, bytes | None]:
@@ -46,6 +50,13 @@ async def normalize_upload_payload(
         raise HTTPException(status_code=400, detail="Invalid pitch style.")
     if not 0 <= int(pitch_strength) <= 100:
         raise HTTPException(status_code=400, detail="Pitch strength must be between 0 and 100.")
+
+    reference_duration_ratio_min = float(reference_duration_ratio_min)
+    reference_duration_ratio_max = float(reference_duration_ratio_max)
+    if reference_duration_ratio_min <= 0 or reference_duration_ratio_max <= 0:
+        raise HTTPException(status_code=400, detail="Reference duration ratio must be greater than 0.")
+    if reference_duration_ratio_min >= reference_duration_ratio_max:
+        raise HTTPException(status_code=400, detail="Reference duration ratio minimum must be smaller than maximum.")
 
     suffix = Path(audio.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
@@ -105,6 +116,8 @@ async def normalize_upload_payload(
             pitchMode=pitch_mode,
             pitchStyle=pitch_style,
             pitchStrength=int(pitch_strength),
+            referenceDurationRatioMin=reference_duration_ratio_min,
+            referenceDurationRatioMax=reference_duration_ratio_max,
             **midi_settings,
             **reference_settings,
         ),

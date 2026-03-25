@@ -11,6 +11,8 @@ from app.core.config import (
     DEFAULT_PITCH_STRENGTH,
     DEFAULT_PITCH_STYLE,
     DEFAULT_PROCESSING_STEPS,
+    DEFAULT_REFERENCE_DURATION_RATIO_MAX,
+    DEFAULT_REFERENCE_DURATION_RATIO_MIN,
     INPUT_MODES,
     MAX_DURATION_SECONDS,
     MAX_FILE_SIZE_BYTES,
@@ -43,6 +45,8 @@ async def get_config() -> ConfigResponse:
             pitchMode=DEFAULT_PITCH_MODE,
             pitchStyle=DEFAULT_PITCH_STYLE,
             pitchStrength=DEFAULT_PITCH_STRENGTH,
+            referenceDurationRatioMin=DEFAULT_REFERENCE_DURATION_RATIO_MIN,
+            referenceDurationRatioMax=DEFAULT_REFERENCE_DURATION_RATIO_MAX,
         ),
         presets=list_scene_presets(),
     )
@@ -86,6 +90,8 @@ async def create_task(
     pitchMode: str = Form(DEFAULT_PITCH_MODE),
     pitchStyle: str = Form(DEFAULT_PITCH_STYLE),
     pitchStrength: int = Form(DEFAULT_PITCH_STRENGTH),
+    referenceDurationRatioMin: float = Form(DEFAULT_REFERENCE_DURATION_RATIO_MIN),
+    referenceDurationRatioMax: float = Form(DEFAULT_REFERENCE_DURATION_RATIO_MAX),
 ) -> TaskEnvelope:
     logger.info("收到新任务请求，文件=%s，输入模式=%s，修音模式=%s，场景=%s", audio.filename, inputMode, pitchMode, scenePreset)
     payload, content, midi_content, reference_content = await normalize_upload_payload(
@@ -99,6 +105,8 @@ async def create_task(
         pitch_mode=pitchMode,
         pitch_style=pitchStyle,
         pitch_strength=pitchStrength,
+        reference_duration_ratio_min=referenceDurationRatioMin,
+        reference_duration_ratio_max=referenceDurationRatioMax,
         midi_file=midiFile,
         reference_vocal_file=referenceVocalFile,
     )

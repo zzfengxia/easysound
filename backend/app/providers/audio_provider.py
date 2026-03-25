@@ -13,12 +13,14 @@ class FfmpegAudioProvider:
 
     async def cleanup_noise(self, source_path: Path, output_path: Path) -> Path:
         cleanup_chain = ",".join([
-            "highpass=f=70",
-            "lowpass=f=14500",
-            "afftdn=nf=-25",
+            "silenceremove=start_periods=1:start_duration=0.25:start_threshold=-38dB",
+            "highpass=f=90",
+            "lowpass=f=13500",
+            "afftdn=nf=-32:nt=w",
+            "agate=threshold=0.018:ratio=10:attack=5:release=250:makeup=1",
             "adeclick",
-            "deesser=i=0.4:m=0.5:f=0.5:s=o",
-            "dynaudnorm=f=150:g=7",
+            "deesser=i=0.35:m=0.5:f=0.5:s=o",
+            "dynaudnorm=f=120:g=5",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", cleanup_chain, str(output_path)])
         return output_path

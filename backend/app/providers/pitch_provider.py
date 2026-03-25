@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,7 @@ except Exception:  # pragma: no cover - dependency availability is environment-s
 
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,6 +55,10 @@ class AutoPitchProvider:
                 "note": "Pitch correction dependencies are missing. Install numpy/librosa/pretty_midi to enable automatic tuning.",
                 "analysis": {},
                 "warnings": [],
+                "requestedMode": settings.pitchMode,
+                "effectiveMode": settings.pitchMode,
+                "fallbackReason": None,
+                "fallbackCategory": None,
             }
 
         analysis = self._extract_pitch(source_path)
@@ -63,29 +69,54 @@ class AutoPitchProvider:
                 "note": "No stable pitched segments were detected. Pitch correction was skipped.",
                 "analysis": analysis,
                 "warnings": [],
+                "requestedMode": settings.pitchMode,
+                "effectiveMode": settings.pitchMode,
+                "fallbackReason": None,
+                "fallbackCategory": None,
             }
 
         warnings: list[str] = []
+        requested_mode = settings.pitchMode
         pitch_mode_used = settings.pitchMode
+        effective_mode = settings.pitchMode
+        fallback_reason = None
+        fallback_category = None
 
         if pitch_mode_used == "midi_reference":
             midi_notes = self._load_midi_notes(settings.midiPath)
             if midi_notes:
                 self._apply_midi_targets(analysis["segments"], midi_notes, analysis["duration_seconds"])
             else:
-                warnings.append("MIDI reference could not be parsed. Falling back to auto-scale pitch correction.")
+                fallback_reason = "MIDI 参考文件解析失败，已回退为自动修音。"
+                fallback_category = "midi_parse"
+                warnings.append(fallback_reason)
                 pitch_mode_used = "auto_scale"
+                effective_mode = "auto_scale"
+                logger.warning("MIDI 参考未生效，已回退自动修音。原因=%s", fallback_reason)
 
         elif pitch_mode_used == "reference_vocal":
             reference_result = self._apply_reference_vocal_targets(
                 source_segments=analysis["segments"],
                 source_duration=analysis["duration_seconds"],
                 reference_path=settings.referencePath,
+                min_ratio=settings.referenceDurationRatioMin,
+                max_ratio=settings.referenceDurationRatioMax,
             )
             warnings.extend(reference_result["warnings"])
             analysis["reference_alignment"] = reference_result["alignment"]
+            fallback_reason = reference_result.get("fallbackReason")
+            fallback_category = reference_result.get("fallbackCategory")
             if not reference_result["applied"]:
                 pitch_mode_used = "auto_scale"
+                effective_mode = "auto_scale"
+                if fallback_reason:
+                    logger.warning(
+                        "参考干声未生效，已回退自动修音。请求模式=%s，实际模式=%s，原因=%s，对齐信息=%s",
+                        requested_mode,
+                        effective_mode,
+                        fallback_reason,
+                        reference_result.get("alignment"),
+                    )
 
         if pitch_mode_used == "auto_scale":
             scale = self._estimate_scale(analysis["segments"])
@@ -109,6 +140,10 @@ class AutoPitchProvider:
                 "note": "Detected notes were already close to target pitch, so no correction was rendered.",
                 "analysis": analysis,
                 "warnings": warnings,
+                "requestedMode": requested_mode,
+                "effectiveMode": effective_mode,
+                "fallbackReason": fallback_reason,
+                "fallbackCategory": fallback_category,
             }
 
         note = self._build_result_note(pitch_mode_used, settings.pitchStyle, rendered["corrected_segments"], analysis)
@@ -118,6 +153,10 @@ class AutoPitchProvider:
             "note": note,
             "analysis": analysis,
             "warnings": warnings,
+            "requestedMode": requested_mode,
+            "effectiveMode": effective_mode,
+            "fallbackReason": fallback_reason,
+            "fallbackCategory": fallback_category,
         }
 
     def _extract_pitch(self, source_path: Path) -> dict:
@@ -248,12 +287,15 @@ class AutoPitchProvider:
             nearest_note = min(midi_notes, key=lambda note: abs(((note["start"] + note["end"]) / 2) - mapped_time))
             segment.target_midi = nearest_note["pitch"]
 
-    def _apply_reference_vocal_targets(self, source_segments: list[PitchSegment], source_duration: float, reference_path: str | None) -> dict:
+    def _apply_reference_vocal_targets(self, source_segments: list[PitchSegment], source_duration: float, reference_path: str | None, min_ratio: float, max_ratio: float) -> dict:
         if not reference_path:
+            reason = "未上传参考干声，已回退为自动修音。"
             return {
                 "applied": False,
-                "warnings": ["Reference vocal mode requires a reference vocal file. Falling back to auto-scale pitch correction."],
+                "warnings": [reason],
                 "alignment": {},
+                "fallbackReason": reason,
+                "fallbackCategory": "missing_reference",
             }
 
         reference_analysis = self._extract_pitch(Path(reference_path))
@@ -263,22 +305,41 @@ class AutoPitchProvider:
 
         warnings: list[str] = []
         if not voiced_reference:
-            warnings.append("Reference vocal did not contain stable pitched notes. Falling back to auto-scale pitch correction.")
-            return {"applied": False, "warnings": warnings, "alignment": {"matchedSegments": 0, "coverage": 0.0}}
+            reason = "参考干声中未检测到稳定音高，已回退为自动修音。"
+            warnings.append(reason)
+            return {
+                "applied": False,
+                "warnings": warnings,
+                "alignment": {"matchedSegments": 0, "coverage": 0.0},
+                "fallbackReason": reason,
+                "fallbackCategory": "unstable_reference",
+            }
 
         duration_ratio = reference_analysis["duration_seconds"] / max(source_duration, 0.001)
-        if duration_ratio < 0.6 or duration_ratio > 1.67:
-            warnings.append("Reference vocal duration differs too much from the target vocal. Falling back to auto-scale pitch correction.")
+        if duration_ratio < min_ratio or duration_ratio > max_ratio:
+            reason = (
+                f"参考干声与待修音频时长比例超出阈值（当前 {duration_ratio:.2f}，允许 {min_ratio:.2f} - {max_ratio:.2f}），已回退为自动修音。"
+            )
+            warnings.append(reason)
             return {
                 "applied": False,
                 "warnings": warnings,
                 "alignment": {"matchedSegments": 0, "coverage": 0.0, "durationRatio": duration_ratio},
+                "fallbackReason": reason,
+                "fallbackCategory": "duration_ratio",
             }
 
         matches = self._align_reference_segments(voiced_source, voiced_reference)
         if not matches:
-            warnings.append("Reference vocal alignment coverage was too low. Falling back to auto-scale pitch correction.")
-            return {"applied": False, "warnings": warnings, "alignment": {"matchedSegments": 0, "coverage": 0.0}}
+            reason = "参考干声对齐覆盖率过低，已回退为自动修音。"
+            warnings.append(reason)
+            return {
+                "applied": False,
+                "warnings": warnings,
+                "alignment": {"matchedSegments": 0, "coverage": 0.0, "durationRatio": duration_ratio},
+                "fallbackReason": reason,
+                "fallbackCategory": "low_coverage",
+            }
 
         matched_duration = 0.0
         large_octave_jumps = 0
@@ -294,14 +355,18 @@ class AutoPitchProvider:
 
         coverage = matched_duration / max(sum(segment.end - segment.start for segment in voiced_source), 0.001)
         if coverage < 0.42:
-            warnings.append("Reference vocal alignment coverage was too low. Falling back to auto-scale pitch correction.")
+            reason = f"参考干声对齐覆盖率过低（当前 {coverage:.0%}），已回退为自动修音。"
+            warnings.append(reason)
             return {
                 "applied": False,
                 "warnings": warnings,
                 "alignment": {"matchedSegments": len(matches), "coverage": coverage, "durationRatio": duration_ratio},
+                "fallbackReason": reason,
+                "fallbackCategory": "low_coverage",
             }
         if large_octave_jumps > max(2, len(matches) // 3):
-            warnings.append("Reference vocal alignment produced too many large pitch jumps. Falling back to auto-scale pitch correction.")
+            reason = f"参考干声匹配产生过多大跳进音高（拒绝 {large_octave_jumps} 段），已回退为自动修音。"
+            warnings.append(reason)
             return {
                 "applied": False,
                 "warnings": warnings,
@@ -311,6 +376,8 @@ class AutoPitchProvider:
                     "durationRatio": duration_ratio,
                     "octaveJumpRejects": large_octave_jumps,
                 },
+                "fallbackReason": reason,
+                "fallbackCategory": "octave_jump",
             }
 
         return {
@@ -322,7 +389,11 @@ class AutoPitchProvider:
                 "durationRatio": duration_ratio,
                 "octaveJumpRejects": large_octave_jumps,
                 "referenceEngine": reference_analysis["engine"],
+                "requestedRatioMin": min_ratio,
+                "requestedRatioMax": max_ratio,
             },
+            "fallbackReason": None,
+            "fallbackCategory": None,
         }
 
     def _smooth_reference_segments(self, segments: list[PitchSegment]) -> list[PitchSegment]:

@@ -7,15 +7,20 @@ const submitMessage = document.querySelector("#submit-message");
 const clearTasksButton = document.querySelector("#clear-tasks-button");
 const midiUploadBlock = document.querySelector("#midi-upload-block");
 const referenceUploadBlock = document.querySelector("#reference-upload-block");
+const referenceThresholdBlock = document.querySelector("#reference-threshold-block");
 const pitchStrength = document.querySelector("#pitchStrength");
 const pitchStrengthValue = document.querySelector("#pitchStrengthValue");
+const referenceDurationRatioMin = document.querySelector("#referenceDurationRatioMin");
+const referenceDurationRatioMax = document.querySelector("#referenceDurationRatioMax");
 
 let selectedPreset = "concert";
 let presetsById = {};
+let defaultPitchConfig = null;
 
 async function init() {
   const response = await fetch("/api/config");
   const config = await response.json();
+  defaultPitchConfig = config.defaultPitch;
   presetsById = Object.fromEntries(config.presets.map((preset) => [preset.id, preset]));
   renderPresets(config.presets);
   initializePitchControls(config.defaultPitch);
@@ -28,6 +33,8 @@ function initializePitchControls(defaultPitch) {
   pitchStrength.value = defaultPitch.pitchStrength;
   pitchStrengthValue.textContent = defaultPitch.pitchStrength;
   form.pitchStyle.value = defaultPitch.pitchStyle;
+  referenceDurationRatioMin.value = Number(defaultPitch.referenceDurationRatioMin || 0.6).toFixed(2);
+  referenceDurationRatioMax.value = Number(defaultPitch.referenceDurationRatioMax || 1.67).toFixed(2);
   pitchStrength.addEventListener("input", () => {
     pitchStrengthValue.textContent = pitchStrength.value;
   });
@@ -63,7 +70,7 @@ function initializeTaskActions() {
   });
 }
 
-function setUploadBlockVisible(element, visible) {
+function setBlockVisible(element, visible) {
   element.hidden = !visible;
   element.style.display = visible ? "block" : "none";
 }
@@ -72,13 +79,18 @@ function syncPitchModeUI() {
   const mode = form.querySelector('input[name="pitchMode"]:checked')?.value;
   const showMidi = mode === "midi_reference";
   const showReference = mode === "reference_vocal";
-  setUploadBlockVisible(midiUploadBlock, showMidi);
-  setUploadBlockVisible(referenceUploadBlock, showReference);
+  setBlockVisible(midiUploadBlock, showMidi);
+  setBlockVisible(referenceUploadBlock, showReference);
+  setBlockVisible(referenceThresholdBlock, showReference);
   if (!showMidi && form.midiFile) {
     form.midiFile.value = "";
   }
   if (!showReference && form.referenceVocalFile) {
     form.referenceVocalFile.value = "";
+    if (defaultPitchConfig) {
+      referenceDurationRatioMin.value = Number(defaultPitchConfig.referenceDurationRatioMin || 0.6).toFixed(2);
+      referenceDurationRatioMax.value = Number(defaultPitchConfig.referenceDurationRatioMax || 1.67).toFixed(2);
+    }
   }
 }
 
@@ -137,6 +149,17 @@ function renderTasks(tasks) {
     fragment.querySelector(".task-progress-value").textContent = `${progressValue}%`;
     fragment.querySelector(".task-stage").textContent = stageCopy(task);
 
+    const fallbackAlert = fragment.querySelector(".task-fallback-alert");
+    const fallbackMessage = buildFallbackAlert(task);
+    if (fallbackMessage) {
+      fallbackAlert.hidden = false;
+      fallbackAlert.style.display = "block";
+      fallbackAlert.textContent = fallbackMessage;
+    } else {
+      fallbackAlert.hidden = true;
+      fallbackAlert.style.display = "none";
+    }
+
     const error = fragment.querySelector(".task-error");
     const failureReason = buildFailureReason(task);
     if (failureReason) {
@@ -147,8 +170,9 @@ function renderTasks(tasks) {
     }
 
     const warningList = fragment.querySelector(".task-warnings");
-    if (task.warnings?.length) {
-      task.warnings.forEach((warning) => {
+    const visibleWarnings = (task.warnings || []).filter((warning) => warning !== task.pitch?.fallbackReason);
+    if (visibleWarnings.length) {
+      visibleWarnings.forEach((warning) => {
         const item = document.createElement("li");
         item.textContent = warning;
         warningList.appendChild(item);
@@ -164,9 +188,11 @@ function renderTasks(tasks) {
     if (task.status === "completed" && task.resultUrl) {
       result.hidden = false;
       result.style.display = "block";
-      resultName.textContent = buildResultName(task);
+      const fileName = getTaskResultFileName(task);
+      resultName.textContent = fileName ? `成品文件：${fileName}` : "成品文件已生成，可以试听和下载。";
       audio.src = task.resultUrl;
       download.href = task.resultUrl;
+      download.download = fileName || "处理结果.mp3";
       download.textContent = "下载成品";
     } else {
       result.hidden = true;
@@ -174,10 +200,19 @@ function renderTasks(tasks) {
       audio.removeAttribute("src");
       audio.load();
       download.removeAttribute("href");
+      download.removeAttribute("download");
     }
 
     taskList.appendChild(fragment);
   });
+}
+
+function buildFallbackAlert(task) {
+  const pitch = task.pitch || {};
+  if (pitch.pitchMode === "reference_vocal" && pitch.effectivePitchMode === "auto_scale" && pitch.fallbackReason) {
+    return `参考干声未生效，已回退为自动修音：${pitch.fallbackReason}`;
+  }
+  return "";
 }
 
 function buildFailureReason(task) {
@@ -194,13 +229,9 @@ function buildFailureReason(task) {
   return "";
 }
 
-function buildResultName(task) {
+function getTaskResultFileName(task) {
   const resultPath = task.resultPath || "";
-  const fileName = resultPath.split(/[\\/]/).pop();
-  if (fileName) {
-    return `成品文件：${fileName}`;
-  }
-  return "成品文件已生成，可以试听和下载。";
+  return resultPath.split(/[\\/]/).pop();
 }
 
 function buildTaskSubtitle(task, preset) {
@@ -255,9 +286,33 @@ function stageCopy(task) {
   return lastNote || "等待处理";
 }
 
+function validateReferenceThresholds() {
+  const minValue = Number.parseFloat(referenceDurationRatioMin.value);
+  const maxValue = Number.parseFloat(referenceDurationRatioMax.value);
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    return "参考干声时长比例阈值必须填写数字。";
+  }
+  if (minValue <= 0 || maxValue <= 0) {
+    return "参考干声时长比例阈值必须大于 0。";
+  }
+  if (minValue >= maxValue) {
+    return "参考干声时长比例的最小值必须小于最大值。";
+  }
+  return "";
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   submitMessage.textContent = "正在提交任务…";
+
+  const selectedPitchMode = form.querySelector('input[name="pitchMode"]:checked')?.value || "auto_scale";
+  if (selectedPitchMode === "reference_vocal") {
+    const validationError = validateReferenceThresholds();
+    if (validationError) {
+      submitMessage.textContent = validationError;
+      return;
+    }
+  }
 
   const data = new FormData(form);
   data.set("scenePreset", selectedPreset);
@@ -267,7 +322,11 @@ form.addEventListener("submit", async (event) => {
   data.set("sceneEnhancement", String(form.sceneEnhancement.checked));
   data.set("pitchStyle", form.pitchStyle.value);
   data.set("pitchStrength", String(form.pitchStrength.value));
-  data.set("pitchMode", form.querySelector('input[name="pitchMode"]:checked')?.value || "auto_scale");
+  data.set("pitchMode", selectedPitchMode);
+  if (selectedPitchMode === "reference_vocal") {
+    data.set("referenceDurationRatioMin", Number.parseFloat(referenceDurationRatioMin.value).toFixed(2));
+    data.set("referenceDurationRatioMax", Number.parseFloat(referenceDurationRatioMax.value).toFixed(2));
+  }
 
   const response = await fetch("/api/tasks", {
     method: "POST",
@@ -282,9 +341,11 @@ form.addEventListener("submit", async (event) => {
 
   form.reset();
   selectedPreset = "concert";
-  pitchStrength.value = 55;
-  pitchStrengthValue.textContent = 55;
-  form.pitchStyle.value = "natural";
+  pitchStrength.value = defaultPitchConfig?.pitchStrength || 55;
+  pitchStrengthValue.textContent = defaultPitchConfig?.pitchStrength || 55;
+  form.pitchStyle.value = defaultPitchConfig?.pitchStyle || "natural";
+  referenceDurationRatioMin.value = Number(defaultPitchConfig?.referenceDurationRatioMin || 0.6).toFixed(2);
+  referenceDurationRatioMax.value = Number(defaultPitchConfig?.referenceDurationRatioMax || 1.67).toFixed(2);
   form.querySelector('input[name="pitchMode"][value="auto_scale"]').checked = true;
   syncPitchModeUI();
   renderPresets(Object.values(presetsById));
