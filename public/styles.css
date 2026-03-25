@@ -144,6 +144,12 @@ h1 {
   margin-bottom: 20px;
 }
 
+.panel-head-row {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
 .panel-head h2 {
   margin: 0;
   font-size: 1.8rem;
@@ -152,6 +158,23 @@ h1 {
 .panel-head p {
   margin: 0;
   color: var(--muted);
+}
+
+.ghost-button {
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(185, 28, 28, 0.18);
+  background: rgba(255, 255, 255, 0.8);
+  color: #b91c1c;
+  padding: 0 16px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .file-drop,
@@ -426,6 +449,10 @@ legend {
   .grid,
   .field-inline-grid {
     grid-template-columns: 1fr;
+  }
+
+  .panel-head-row {
+    flex-direction: column;
   }
 
   .shell {

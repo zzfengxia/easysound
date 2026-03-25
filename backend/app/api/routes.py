@@ -53,6 +53,16 @@ async def list_tasks(request: Request) -> TaskListEnvelope:
     return TaskListEnvelope(tasks=request.app.state.task_store.list())
 
 
+@router.delete("/tasks")
+async def clear_tasks(request: Request) -> dict:
+    task_store = request.app.state.task_store
+    if task_store.has_active_tasks():
+        raise HTTPException(status_code=409, detail="还有排队中或处理中的任务，暂时不能清空历史记录。")
+    cleared = await task_store.clear_all()
+    logger.info("历史任务已清空，共删除 %s 条任务记录。", cleared)
+    return {"cleared": cleared}
+
+
 @router.get("/tasks/{task_id}", response_model=TaskEnvelope)
 async def get_task(task_id: str, request: Request) -> TaskEnvelope:
     task = request.app.state.task_store.get(task_id)

@@ -4,6 +4,7 @@ const presetTemplate = document.querySelector("#preset-template");
 const taskTemplate = document.querySelector("#task-template");
 const taskList = document.querySelector("#task-list");
 const submitMessage = document.querySelector("#submit-message");
+const clearTasksButton = document.querySelector("#clear-tasks-button");
 const midiUploadBlock = document.querySelector("#midi-upload-block");
 const referenceUploadBlock = document.querySelector("#reference-upload-block");
 const pitchStrength = document.querySelector("#pitchStrength");
@@ -18,6 +19,7 @@ async function init() {
   presetsById = Object.fromEntries(config.presets.map((preset) => [preset.id, preset]));
   renderPresets(config.presets);
   initializePitchControls(config.defaultPitch);
+  initializeTaskActions();
   await refreshTasks();
   setInterval(refreshTasks, 2000);
 }
@@ -33,6 +35,32 @@ function initializePitchControls(defaultPitch) {
     input.addEventListener("change", syncPitchModeUI);
   });
   syncPitchModeUI();
+}
+
+function initializeTaskActions() {
+  clearTasksButton.addEventListener("click", async () => {
+    const confirmed = window.confirm("确定要清空所有历史任务吗？已完成和失败任务的记录会被删除。");
+    if (!confirmed) {
+      return;
+    }
+
+    clearTasksButton.disabled = true;
+    submitMessage.textContent = "正在清空历史任务…";
+    try {
+      const response = await fetch("/api/tasks", { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) {
+        submitMessage.textContent = payload.detail || payload.error || "清空失败，请稍后再试。";
+        return;
+      }
+      submitMessage.textContent = `已清空 ${payload.cleared || 0} 条历史任务。`;
+      await refreshTasks();
+    } catch (error) {
+      submitMessage.textContent = error.message || "清空失败，请稍后再试。";
+    } finally {
+      clearTasksButton.disabled = false;
+    }
+  });
 }
 
 function setUploadBlockVisible(element, visible) {
@@ -86,6 +114,9 @@ async function refreshTasks() {
 
 function renderTasks(tasks) {
   taskList.innerHTML = "";
+  const hasActiveTasks = tasks.some((task) => task.status === "queued" || task.status === "processing");
+  clearTasksButton.disabled = hasActiveTasks;
+  clearTasksButton.title = hasActiveTasks ? "还有排队中或处理中的任务，暂时不能清空。" : "清空所有历史任务";
 
   if (!tasks.length) {
     const empty = document.createElement("p");

@@ -1,10 +1,12 @@
 ﻿from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
-from app.core.config import TASK_DIR
+from app.core.config import TASK_DIR, TEMP_DIR
 from app.schemas import PitchSettings, TaskRecord
 
 
@@ -39,6 +41,9 @@ class TaskStore:
 
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
+
+    def has_active_tasks(self) -> bool:
+        return any(task.status in {"queued", "processing"} for task in self._tasks.values())
 
     async def create(self, **payload) -> TaskRecord:
         now = utc_now()
@@ -96,7 +101,32 @@ class TaskStore:
             raise KeyError(f"Task {task_id} not found")
         return await self.update(task_id, processingNotes=[*current.processingNotes, note])
 
+    async def clear_all(self) -> int:
+        tasks = list(self._tasks.values())
+        count = len(tasks)
+        for task in tasks:
+            self._delete_file(Path(task.sourcePath))
+            self._delete_file(Path(task.resultPath) if task.resultPath else None)
+            self._delete_file(Path(task.pitch.midiPath) if task.pitch.midiPath else None)
+            self._delete_file(Path(task.pitch.referencePath) if task.pitch.referencePath else None)
+            self._delete_file(TASK_DIR / f"{task.id}.json")
+            temp_dir = TEMP_DIR / task.id
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        self._tasks.clear()
+        return count
+
     def _save(self, task: TaskRecord) -> None:
         path = TASK_DIR / f"{task.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(task.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def _delete_file(path: Path | None) -> None:
+        if path is None:
+            return
+        try:
+            if path.exists() and path.is_file():
+                path.unlink()
+        except OSError:
+            pass

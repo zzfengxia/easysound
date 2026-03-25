@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import subprocess
 from pathlib import Path
 
 from app.core.config import FFMPEG_PATH, FFPROBE_PATH
@@ -10,21 +11,31 @@ from app.core.config import FFMPEG_PATH, FFPROBE_PATH
 logger = logging.getLogger(__name__)
 
 
+def _run_command_sync(binary: Path, args: list[str]) -> tuple[str, str]:
+    completed = subprocess.run(
+        [str(binary), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+        check=False,
+    )
+    if completed.returncode != 0:
+        logger.error(
+            "命令执行失败，退出码=%s，命令=%s，错误=%s",
+            completed.returncode,
+            " ".join([str(binary), *args]),
+            completed.stderr.strip(),
+        )
+        raise RuntimeError(completed.stderr or f"命令执行失败：{binary}")
+    return completed.stdout, completed.stderr
+
+
 async def run_command(binary: Path, args: list[str]) -> tuple[str, str]:
     command_text = " ".join([str(binary), *args])
     logger.info("开始执行命令：%s", command_text)
-    process = await asyncio.create_subprocess_exec(
-        str(binary),
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
-    stdout_text = stdout.decode("utf-8", errors="ignore")
-    stderr_text = stderr.decode("utf-8", errors="ignore")
-    if process.returncode != 0:
-        logger.error("命令执行失败，退出码=%s，命令=%s，错误=%s", process.returncode, command_text, stderr_text.strip())
-        raise RuntimeError(stderr_text or f"命令执行失败：{binary}")
+    stdout_text, stderr_text = await asyncio.to_thread(_run_command_sync, binary, args)
     logger.info("命令执行完成：%s", command_text)
     return stdout_text, stderr_text
 
