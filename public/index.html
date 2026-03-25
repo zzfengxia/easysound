@@ -1,0 +1,179 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EasySound</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">EasySound v1</p>
+          <h1>把录好的歌，整理成一首更像成品的版本。</h1>
+          <p class="lede">
+            上传音频，选择干声或带伴奏模式，按步骤处理降噪、修音、润色和场景效果。系统会用异步任务完成处理，并生成可试听、可下载的最终成品。
+          </p>
+          <div class="hero-meta">
+            <span>服务端异步处理</span>
+            <span>场景预设</span>
+            <span>自动修音三模式</span>
+          </div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-card-label">处理链</div>
+          <ol>
+            <li>音频预检</li>
+            <li>降噪去杂</li>
+            <li>音高跟踪与修音</li>
+            <li>润色与空间效果</li>
+            <li>导出成品</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="grid">
+        <form id="upload-form" class="panel form-panel">
+          <div class="panel-head">
+            <h2>创建任务</h2>
+            <p>v1 默认输出最终成品，不单独导出中间轨道。</p>
+          </div>
+
+          <label class="file-drop">
+            <span class="file-title">上传歌曲音频</span>
+            <span class="file-hint">支持 wav / mp3 / m4a / flac / aac / ogg，最长 8 分钟，最大 40MB</span>
+            <input id="audio" name="audio" type="file" accept=".wav,.mp3,.m4a,.flac,.aac,.ogg" required />
+          </label>
+
+          <fieldset class="field-group">
+            <legend>输入模式</legend>
+            <label class="option-row">
+              <input type="radio" name="inputMode" value="vocals_only" checked />
+              <span>
+                <strong>干声模式</strong>
+                <small>直接走清理、修音、润色和场景处理。</small>
+              </span>
+            </label>
+            <label class="option-row">
+              <input type="radio" name="inputMode" value="with_backing_track" />
+              <span>
+                <strong>带伴奏模式</strong>
+                <small>先做人声聚焦分离，再对人声处理并回混。</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>处理步骤</legend>
+            <label class="toggle-row"><input type="checkbox" name="noiseReduction" checked /> 降噪与去杂音</label>
+            <label class="toggle-row"><input type="checkbox" name="pitchCorrection" checked /> 自动修音</label>
+            <label class="toggle-row"><input type="checkbox" name="polish" checked /> 音色润色与轻混响</label>
+            <label class="toggle-row"><input type="checkbox" name="sceneEnhancement" checked /> 场景效果</label>
+          </fieldset>
+
+          <fieldset class="field-group" id="pitch-settings">
+            <legend>修音设置</legend>
+            <label class="option-row">
+              <input type="radio" name="pitchMode" value="auto_scale" checked />
+              <span>
+                <strong>自动推断</strong>
+                <small>自动估计音阶并做自然修音。</small>
+              </span>
+            </label>
+            <label class="option-row">
+              <input type="radio" name="pitchMode" value="midi_reference" />
+              <span>
+                <strong>MIDI 参考</strong>
+                <small>上传 MIDI 作为目标旋律。</small>
+              </span>
+            </label>
+            <label class="option-row">
+              <input type="radio" name="pitchMode" value="reference_vocal" />
+              <span>
+                <strong>参考干声</strong>
+                <small>上传同一首歌的标准干声，直接作为旋律参考。</small>
+              </span>
+            </label>
+
+            <div class="field-inline-grid">
+              <label class="field-stack">
+                <span>修音风格</span>
+                <select id="pitchStyle" name="pitchStyle">
+                  <option value="natural">自然修音</option>
+                  <option value="autotune">Auto-Tune</option>
+                </select>
+              </label>
+
+              <label class="field-stack">
+                <span>修音强度 <strong id="pitchStrengthValue">55</strong></span>
+                <input id="pitchStrength" name="pitchStrength" type="range" min="0" max="100" value="55" />
+              </label>
+            </div>
+
+            <label class="file-drop is-compact" id="midi-upload-block" hidden>
+              <span class="file-title">上传 MIDI 参考旋律</span>
+              <span class="file-hint">支持 .mid / .midi，最大 2MB</span>
+              <input id="midiFile" name="midiFile" type="file" accept=".mid,.midi" />
+            </label>
+
+            <label class="file-drop is-compact" id="reference-upload-block" hidden>
+              <span class="file-title">上传参考干声</span>
+              <span class="file-hint">支持 wav / mp3 / m4a / flac / aac / ogg，建议使用标准、干净、较准的人声参考</span>
+              <input id="referenceVocalFile" name="referenceVocalFile" type="file" accept=".wav,.mp3,.m4a,.flac,.aac,.ogg" />
+            </label>
+          </fieldset>
+
+          <div class="field-group">
+            <div class="preset-header">
+              <h3>场景预设</h3>
+              <p>首版提供固定预设包，优先保证一致性。</p>
+            </div>
+            <div id="preset-grid" class="preset-grid"></div>
+          </div>
+
+          <button class="submit-button" type="submit">提交处理任务</button>
+          <p id="submit-message" class="submit-message" aria-live="polite"></p>
+        </form>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>任务状态</h2>
+            <p>上传后会自动排队处理，可随时查看当前阶段和试听结果。</p>
+          </div>
+          <div id="task-list" class="task-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="preset-template">
+      <label class="preset-card">
+        <input type="radio" name="scenePreset" />
+        <span class="preset-name"></span>
+        <small class="preset-description"></small>
+      </label>
+    </template>
+
+    <template id="task-template">
+      <article class="task-card">
+        <div class="task-head">
+          <div>
+            <h3 class="task-title"></h3>
+            <p class="task-subtitle"></p>
+          </div>
+          <span class="task-status"></span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar"></div>
+        </div>
+        <p class="task-stage"></p>
+        <p class="task-error"></p>
+        <ul class="task-warnings"></ul>
+        <audio class="task-audio" controls preload="none"></audio>
+        <a class="task-download" download>下载成品</a>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
