@@ -26,19 +26,32 @@ function initializePitchControls(defaultPitch) {
   pitchStrength.value = defaultPitch.pitchStrength;
   pitchStrengthValue.textContent = defaultPitch.pitchStrength;
   form.pitchStyle.value = defaultPitch.pitchStyle;
-  syncPitchModeUI();
   pitchStrength.addEventListener("input", () => {
     pitchStrengthValue.textContent = pitchStrength.value;
   });
   form.querySelectorAll('input[name="pitchMode"]').forEach((input) => {
     input.addEventListener("change", syncPitchModeUI);
   });
+  syncPitchModeUI();
+}
+
+function setUploadBlockVisible(element, visible) {
+  element.hidden = !visible;
+  element.style.display = visible ? "block" : "none";
 }
 
 function syncPitchModeUI() {
   const mode = form.querySelector('input[name="pitchMode"]:checked')?.value;
-  midiUploadBlock.hidden = mode !== "midi_reference";
-  referenceUploadBlock.hidden = mode !== "reference_vocal";
+  const showMidi = mode === "midi_reference";
+  const showReference = mode === "reference_vocal";
+  setUploadBlockVisible(midiUploadBlock, showMidi);
+  setUploadBlockVisible(referenceUploadBlock, showReference);
+  if (!showMidi && form.midiFile) {
+    form.midiFile.value = "";
+  }
+  if (!showReference && form.referenceVocalFile) {
+    form.referenceVocalFile.value = "";
+  }
 }
 
 function renderPresets(presets) {
@@ -85,15 +98,18 @@ function renderTasks(tasks) {
   tasks.forEach((task) => {
     const fragment = taskTemplate.content.cloneNode(true);
     const preset = presetsById[task.scenePreset];
+    const progressValue = Math.max(0, Math.min(100, Math.round(task.progress || 0)));
     fragment.querySelector(".task-title").textContent = task.originalName;
     fragment.querySelector(".task-subtitle").textContent = buildTaskSubtitle(task, preset);
     fragment.querySelector(".task-status").textContent = formatStatus(task.status);
-    fragment.querySelector(".progress-bar").style.width = `${task.progress || 0}%`;
+    fragment.querySelector(".progress-bar").style.width = `${progressValue}%`;
+    fragment.querySelector(".task-progress-value").textContent = `${progressValue}%`;
     fragment.querySelector(".task-stage").textContent = stageCopy(task);
 
     const error = fragment.querySelector(".task-error");
-    if (task.error) {
-      error.textContent = task.error;
+    const failureReason = buildFailureReason(task);
+    if (failureReason) {
+      error.textContent = `失败原因：${failureReason}`;
       error.style.display = "block";
     } else {
       error.style.display = "none";
@@ -110,19 +126,50 @@ function renderTasks(tasks) {
       warningList.remove();
     }
 
+    const result = fragment.querySelector(".task-result");
+    const resultName = fragment.querySelector(".task-result-name");
     const audio = fragment.querySelector(".task-audio");
     const download = fragment.querySelector(".task-download");
-    if (task.resultUrl) {
+    if (task.status === "completed" && task.resultUrl) {
+      result.hidden = false;
+      result.style.display = "block";
+      resultName.textContent = buildResultName(task);
       audio.src = task.resultUrl;
       download.href = task.resultUrl;
       download.textContent = "下载成品";
     } else {
-      audio.remove();
-      download.remove();
+      result.hidden = true;
+      result.style.display = "none";
+      audio.removeAttribute("src");
+      audio.load();
+      download.removeAttribute("href");
     }
 
     taskList.appendChild(fragment);
   });
+}
+
+function buildFailureReason(task) {
+  if (task.error && task.error.trim()) {
+    return task.error.trim();
+  }
+  const failedEntry = [...(task.timeline || [])].reverse().find((entry) => entry.stage === "failed" && entry.note?.trim());
+  if (failedEntry) {
+    return failedEntry.note.trim();
+  }
+  if (task.status === "failed") {
+    return "后端没有返回详细原因，请查看服务端日志。";
+  }
+  return "";
+}
+
+function buildResultName(task) {
+  const resultPath = task.resultPath || "";
+  const fileName = resultPath.split(/[\\/]/).pop();
+  if (fileName) {
+    return `成品文件：${fileName}`;
+  }
+  return "成品文件已生成，可以试听和下载。";
 }
 
 function buildTaskSubtitle(task, preset) {
@@ -165,7 +212,8 @@ function formatStatus(status) {
 
 function stageCopy(task) {
   if (task.status === "failed") {
-    return `处理失败 · ${task.currentStage}`;
+    const failedStage = task.currentStage || "未知阶段";
+    return `处理失败 · ${failedStage}`;
   }
 
   if (task.status === "completed") {

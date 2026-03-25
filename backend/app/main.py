@@ -1,7 +1,10 @@
 ﻿from __future__ import annotations
 
+import argparse
+import logging
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,9 +16,16 @@ from app.services.audio_pipeline import AudioPipeline
 from app.services.job_queue import JobQueue
 from app.services.task_store import TaskStore
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("EasySound 服务启动中，正在准备目录和任务队列。")
     for directory in (DATA_DIR, TASK_DIR, STORAGE_DIR, UPLOAD_DIR, RESULT_DIR, TEMP_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -30,7 +40,11 @@ async def lifespan(app: FastAPI):
     app.state.task_store = task_store
     app.state.job_queue = job_queue
     app.state.providers = providers
-    yield
+    logger.info("EasySound 服务已就绪，等待接收任务。")
+    try:
+        yield
+    finally:
+        logger.info("EasySound 服务正在关闭。")
 
 
 app = FastAPI(title="EasySound", lifespan=lifespan)
@@ -49,3 +63,18 @@ async def public_files(file_path: str):
     if target.is_file():
         return FileResponse(target)
     return FileResponse(PUBLIC_DIR / "index.html")
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description="easysound RESTful API server"
+    )
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="host name")
+    parser.add_argument("--port", type=int, default=3001, help="port number")
+    parser.add_argument("--workers", type=int, default=1, help="workers")
+    parser.add_argument("--backlog", type=int, default=2048, help="backlog")
+
+    args = parser.parse_args()
+
+    uvicorn.run(app='app.main:app', host=args.host, port=args.port, log_level="info", workers=args.workers,
+                backlog=args.backlog)

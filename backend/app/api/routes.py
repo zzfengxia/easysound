@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 import re
 import time
 
@@ -22,6 +23,7 @@ from app.schemas import ConfigResponse, PitchSettings, TaskEnvelope, TaskListEnv
 from app.services.upload_payload import normalize_upload_payload
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -75,6 +77,7 @@ async def create_task(
     pitchStyle: str = Form(DEFAULT_PITCH_STYLE),
     pitchStrength: int = Form(DEFAULT_PITCH_STRENGTH),
 ) -> TaskEnvelope:
+    logger.info("收到新任务请求，文件=%s，输入模式=%s，修音模式=%s，场景=%s", audio.filename, inputMode, pitchMode, scenePreset)
     payload, content, midi_content, reference_content = await normalize_upload_payload(
         audio,
         input_mode=inputMode,
@@ -101,6 +104,7 @@ async def create_task(
         midi_path.write_bytes(midi_content)
         pitch_settings.midiStoredName = midi_stored_name
         pitch_settings.midiPath = str(midi_path)
+        logger.info("任务附带 MIDI 参考文件，文件=%s", midiFile.filename)
 
     if reference_content and referenceVocalFile and referenceVocalFile.filename:
         reference_stored_name = f"{int(time.time() * 1000)}-{_sanitize_filename(referenceVocalFile.filename)}"
@@ -108,6 +112,7 @@ async def create_task(
         reference_path.write_bytes(reference_content)
         pitch_settings.referenceStoredName = reference_stored_name
         pitch_settings.referencePath = str(reference_path)
+        logger.info("任务附带参考干声文件，文件=%s", referenceVocalFile.filename)
 
     task = await request.app.state.task_store.create(
         originalName=audio.filename or stored_name,
@@ -120,4 +125,5 @@ async def create_task(
         pitch=pitch_settings,
     )
     await request.app.state.job_queue.enqueue(task.id)
+    logger.info("任务已入队，任务ID=%s，原始文件=%s", task.id, task.originalName)
     return TaskEnvelope(task=task)

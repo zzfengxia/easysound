@@ -1,12 +1,15 @@
 ﻿from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from time import monotonic
 
 from app.core.config import INPUT_MODES, MAX_DURATION_SECONDS, MIN_SAMPLE_RATE, RESULT_DIR, TEMP_DIR
 from app.core.scene_presets import get_scene_preset
 from app.services.audio_metadata import probe_audio
+
+logger = logging.getLogger(__name__)
 
 STAGE_PROGRESS = {
     "preflight": 10,
@@ -30,9 +33,11 @@ class AudioPipeline:
         temp_dir.mkdir(parents=True, exist_ok=True)
         started_at = monotonic()
         stage_started_at: dict[str, float] = {}
+        logger.info("任务进入处理流水线，任务ID=%s，临时目录=%s", task.id, temp_dir)
 
         async def mark_stage(stage: str, note: str) -> None:
             stage_started_at[stage] = monotonic()
+            logger.info("任务阶段开始，任务ID=%s，阶段=%s，说明=%s", task.id, stage, note)
             await self.task_store.update(task.id, status="processing", currentStage=stage, progress=STAGE_PROGRESS.get(stage, task.progress))
             await self.task_store.push_timeline(task.id, stage=stage, note=note)
 
@@ -41,9 +46,11 @@ class AudioPipeline:
             durations = dict(current.stageDurationsMs)
             durations[stage] = int((monotonic() - stage_started_at.get(stage, monotonic())) * 1000)
             await self.task_store.update(task.id, stageDurationsMs=durations)
+            logger.info("任务阶段完成，任务ID=%s，阶段=%s，耗时=%sms", task.id, stage, durations[stage])
 
-        await mark_stage("preflight", "Validating format, sample rate, and duration.")
+        await mark_stage("preflight", "正在校验音频格式、采样率和时长。")
         metadata = await probe_audio(Path(task.sourcePath))
+        logger.info("音频预检结果，任务ID=%s，时长=%.2fs，采样率=%sHz，声道=%s", task.id, metadata["durationSeconds"], metadata["sampleRate"], metadata["channels"])
         self._validate_metadata(metadata)
         await self.task_store.update(task.id, metadata=metadata)
         await complete_stage("preflight")
@@ -54,22 +61,23 @@ class AudioPipeline:
         backing_path = None
 
         if task.steps.noiseReduction:
-            await mark_stage("cleanup", "Reducing broadband noise and harsh artifacts.")
+            await mark_stage("cleanup", "正在做降噪、去齿音和基础清理。")
             cleaned_path = temp_dir / "02-cleanup.wav"
             await self.providers["audio"].cleanup_noise(current_path, cleaned_path)
             current_path = cleaned_path
             await complete_stage("cleanup")
 
         if task.inputMode == INPUT_MODES["MIX"]:
-            await mark_stage("separation", "Separating vocal focus from backing track.")
+            await mark_stage("separation", "正在分离人声和伴奏。")
             separated = await self.providers["audio"].approximate_separate(current_path, temp_dir / "03-vocals.wav", temp_dir / "03-backing.wav")
             current_path = separated["vocalPath"]
             backing_path = separated["instrumentalPath"]
             await self.task_store.add_warning(task.id, separated["note"])
+            logger.info("人声分离完成，任务ID=%s，提示=%s", task.id, separated["note"])
             await complete_stage("separation")
 
         if task.steps.pitchCorrection:
-            await mark_stage("pitch_correction", "Tracking pitch, building targets, and rendering correction.")
+            await mark_stage("pitch_correction", "正在跟踪音高并渲染修音结果。")
             corrected_path = temp_dir / "04-pitch.wav"
             corrected = await self.providers["pitch"].correct_pitch(
                 current_path,
@@ -81,14 +89,16 @@ class AudioPipeline:
             current_path = Path(corrected["outputPath"])
             if corrected.get("note"):
                 await self.task_store.add_processing_note(task.id, corrected["note"])
+                logger.info("修音说明，任务ID=%s，内容=%s", task.id, corrected["note"])
             for warning in corrected.get("warnings", []):
                 await self.task_store.add_warning(task.id, warning)
+                logger.warning("修音警告，任务ID=%s，内容=%s", task.id, warning)
             if not corrected.get("applied") and corrected.get("note"):
                 await self.task_store.add_warning(task.id, corrected["note"])
             await complete_stage("pitch_correction")
 
         if task.steps.polish:
-            await mark_stage("polish", "Adding compression, EQ, and a gentle sheen.")
+            await mark_stage("polish", "正在做人声润色和轻混响。")
             polished_path = temp_dir / "05-polish.wav"
             await self.providers["audio"].polish_voice(current_path, polished_path)
             current_path = polished_path
@@ -96,20 +106,21 @@ class AudioPipeline:
 
         if task.steps.sceneEnhancement:
             preset = get_scene_preset(task.scenePreset)
-            await mark_stage("scene", f"Applying {preset['name']} preset.")
+            await mark_stage("scene", f"正在应用场景预设：{preset['name']}。")
             scene_result = await self.providers["audio"].apply_scene_preset(current_path, task.scenePreset, temp_dir / "06-scene.wav")
             current_path = scene_result["outputPath"]
             await self.task_store.add_processing_note(task.id, f"Scene preset: {scene_result['preset']['name']}")
+            logger.info("场景效果应用完成，任务ID=%s，场景=%s", task.id, scene_result["preset"]["name"])
             await complete_stage("scene")
 
         if task.inputMode == INPUT_MODES["MIX"] and backing_path is not None:
-            await mark_stage("mixdown", "Mixing processed vocal back with backing track.")
+            await mark_stage("mixdown", "正在将处理后的人声回混到伴奏中。")
             remixed_path = temp_dir / "07-mix.wav"
             await self.providers["audio"].remix(current_path, backing_path, remixed_path)
             current_path = remixed_path
             await complete_stage("mixdown")
 
-        await mark_stage("export", "Encoding final deliverable.")
+        await mark_stage("export", "正在导出最终成品音频。")
         result_path = RESULT_DIR / f"{task.id}.mp3"
         result_path.parent.mkdir(parents=True, exist_ok=True)
         await self.providers["audio"].export_final(current_path, result_path)
@@ -128,6 +139,7 @@ class AudioPipeline:
             "preset": get_scene_preset(task.scenePreset),
         }
         (temp_dir / "processing-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info("任务处理摘要已写入，任务ID=%s，总耗时=%sms", task.id, summary["totalDurationMs"])
 
         return {
             "resultPath": str(result_path),
@@ -137,8 +149,8 @@ class AudioPipeline:
 
     def _validate_metadata(self, metadata: dict) -> None:
         if not metadata["durationSeconds"]:
-            raise RuntimeError("Uploaded file does not contain a readable audio stream.")
+            raise RuntimeError("上传的文件中没有可读取的音频流。")
         if metadata["durationSeconds"] > MAX_DURATION_SECONDS:
-            raise RuntimeError(f"Audio is too long. Maximum supported length is {MAX_DURATION_SECONDS // 60} minutes.")
+            raise RuntimeError(f"音频时长过长，当前最多支持 {MAX_DURATION_SECONDS // 60} 分钟。")
         if metadata["sampleRate"] < MIN_SAMPLE_RATE:
-            raise RuntimeError(f"Sample rate too low. Minimum supported sample rate is {MIN_SAMPLE_RATE} Hz.")
+            raise RuntimeError(f"采样率过低，当前最低支持 {MIN_SAMPLE_RATE} Hz。")
