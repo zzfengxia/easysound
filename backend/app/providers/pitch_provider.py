@@ -135,8 +135,6 @@ class AutoPitchProvider:
                 auto_summary["lowConfidenceSegments"],
                 auto_summary["transitionSegments"],
             )
-            if auto_summary["correctedSegments"] <= max(1, auto_summary["voicedSegments"] // 10):
-                warnings.append("原始音高已接近目标，自动修音影响较小。")
 
         rendered = await self._render_segments(
             source_path=source_path,
@@ -653,4 +651,5 @@ class AutoPitchProvider:
         if root is None:
             return f"Pitch correction rendered with {engine} tracking across {corrected_segments} segments."
         return f"Pitch correction rendered with {engine} tracking, estimated {NOTE_NAMES[root]} {mode}, across {corrected_segments} segments."
+
 

@@ -13,14 +13,12 @@ class FfmpegAudioProvider:
 
     async def cleanup_noise(self, source_path: Path, output_path: Path) -> Path:
         cleanup_chain = ",".join([
-            "silenceremove=start_periods=1:start_duration=0.18:start_threshold=-34dB:stop_periods=1:stop_duration=0.28:stop_threshold=-36dB",
-            "highpass=f=90",
-            "lowpass=f=13500",
-            "afftdn=nf=-36:nt=w",
-            "agate=threshold=0.022:ratio=14:attack=4:release=220",
+            "highpass=f=70",
+            "lowpass=f=14500",
+            "afftdn=nf=-25",
             "adeclick",
-            "deesser=i=0.35:m=0.5:f=0.5:s=o",
-            "dynaudnorm=f=120:g=4:p=0.8:m=10",
+            "deesser=i=0.4:m=0.5:f=0.5:s=o",
+            "dynaudnorm=f=150:g=7",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", cleanup_chain, str(output_path)])
         return output_path
@@ -126,11 +124,9 @@ class FfmpegAudioProvider:
 
     async def normalize_loudness(self, source_path: Path, output_path: Path) -> Path:
         loudness_chain = ",".join([
-            "agate=threshold=0.018:ratio=10:attack=6:release=180",
             "acompressor=threshold=-22dB:ratio=1.55:attack=20:release=220",
-            "dynaudnorm=f=180:g=5:p=0.82:m=10",
+            "dynaudnorm=f=180:g=6:p=0.85:m=12",
             "loudnorm=I=-16:LRA=10:TP=-1.5",
-            "silenceremove=start_periods=1:start_duration=0.14:start_threshold=-39dB:stop_periods=1:stop_duration=0.20:stop_threshold=-40dB",
             "alimiter=limit=0.95",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", loudness_chain, str(output_path)])
@@ -139,5 +135,6 @@ class FfmpegAudioProvider:
     async def export_final(self, source_path: Path, output_path: Path) -> Path:
         await run_ffmpeg(["-i", str(source_path), "-c:a", "libmp3lame", "-b:a", "192k", str(output_path)])
         return output_path
+
 
 
