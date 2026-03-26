@@ -1,0 +1,90 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EasySound 历史任务</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="history-table-shell">
+      <section class="history-table-hero">
+        <div>
+          <p class="eyebrow">Task Archive</p>
+          <h1>历史任务</h1>
+          <p class="history-table-lede">分页查看历史记录。列表只展示关键摘要，点击详情进入独立页面查看参数、处理流程和文件下载。</p>
+        </div>
+        <div class="history-table-hero-actions">
+          <span id="history-summary" class="history-table-summary">正在加载…</span>
+          <a class="subtle-link-button" href="/">返回首页</a>
+        </div>
+      </section>
+
+      <section class="history-table-panel">
+        <div class="history-table-panel-head">
+          <div>
+            <h2>任务记录</h2>
+            <p>按创建时间倒序排列。</p>
+          </div>
+          <span id="history-page-indicator" class="history-table-page-indicator"></span>
+        </div>
+
+        <div class="history-table-toolbar">
+          <label class="history-table-search">
+            <span>按任务名搜索</span>
+            <input id="history-search-input" type="search" placeholder="输入任务名关键字" autocomplete="off" />
+          </label>
+        </div>
+
+        <div id="history-error" class="history-error" hidden></div>
+        <div id="history-empty" class="history-empty" hidden>还没有任务记录。</div>
+
+        <div class="history-table-wrap">
+          <table class="history-table" aria-label="历史任务列表">
+            <thead>
+              <tr>
+                <th scope="col">任务名</th>
+                <th scope="col">状态</th>
+                <th scope="col">场景/阶段</th>
+                <th scope="col">模式</th>
+                <th scope="col">创建时间</th>
+                <th scope="col">结果文件</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="history-table-pagination">
+          <button id="history-prev" class="ghost-button" type="button">上一页</button>
+          <span id="history-pagination-text" class="history-table-pagination-text"></span>
+          <button id="history-next" class="ghost-button" type="button">下一页</button>
+        </div>
+      </section>
+    </main>
+
+    <template id="history-row-template">
+      <tr>
+        <td>
+          <div class="history-table-name"></div>
+        </td>
+        <td>
+          <span class="detail-chip history-table-status"></span>
+        </td>
+        <td>
+          <div class="history-table-scene"></div>
+          <div class="history-table-stage"></div>
+        </td>
+        <td class="history-table-mode"></td>
+        <td class="history-table-created"></td>
+        <td class="history-table-result"></td>
+        <td>
+          <a class="subtle-link-button history-table-detail-link">详情</a>
+        </td>
+      </tr>
+    </template>
+
+    <script type="module" src="/history.js"></script>
+  </body>
+</html>

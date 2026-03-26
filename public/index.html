@@ -195,9 +195,12 @@
           <div class="panel-head panel-head-row">
             <div>
               <h2>任务状态</h2>
-              <p>上传后会自动排队处理，可随时查看当前阶段和试听结果。</p>
+              <p>上传后会自动排队处理，可随时查看当前阶段；清空当前列表不会删除任务和文件。</p>
             </div>
-            <button id="clear-tasks-button" class="ghost-button" type="button">清空任务</button>
+            <div class="task-actions">
+              <a class="subtle-link-button" href="/history">查看全部历史</a>
+              <button id="clear-tasks-button" class="ghost-button" type="button">清空当前列表</button>
+            </div>
           </div>
           <div id="task-list" class="task-list"></div>
         </section>

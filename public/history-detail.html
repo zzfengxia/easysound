@@ -1,0 +1,66 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EasySound 任务详情</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="history-detail-shell">
+      <section class="history-detail-hero">
+        <div>
+          <p class="eyebrow">Task Detail</p>
+          <h1 id="detail-title">任务详情</h1>
+          <p id="detail-subtitle" class="history-detail-lede">正在加载任务详情…</p>
+        </div>
+        <div class="history-detail-hero-actions">
+          <span id="detail-status" class="detail-chip" hidden></span>
+          <a class="subtle-link-button" href="/history">返回历史列表</a>
+        </div>
+      </section>
+
+      <div id="detail-error" class="history-error" hidden></div>
+      <div id="detail-empty" class="history-empty" hidden>未找到该任务。</div>
+
+      <section id="detail-layout" class="history-detail-layout" hidden>
+        <section class="history-detail-column">
+          <article class="history-detail-card">
+            <h2>基本信息</h2>
+            <dl id="detail-meta" class="history-detail-kv"></dl>
+          </article>
+
+          <article class="history-detail-card">
+            <h2>处理参数</h2>
+            <dl id="detail-params" class="history-detail-kv"></dl>
+          </article>
+        </section>
+
+        <section class="history-detail-column">
+          <article class="history-detail-card">
+            <h2>处理流程</h2>
+            <ul id="detail-timeline" class="history-detail-timeline"></ul>
+          </article>
+
+          <article class="history-detail-card">
+            <h2>原始文件</h2>
+            <div id="detail-input-files" class="history-detail-files"></div>
+          </article>
+
+          <article class="history-detail-card">
+            <h2>生成文件</h2>
+            <div id="detail-output-files" class="history-detail-files"></div>
+            <audio id="detail-audio" class="history-audio" controls preload="none" hidden></audio>
+          </article>
+
+          <article id="detail-warning-card" class="history-detail-card" hidden>
+            <h2>异常与提示</h2>
+            <ul id="detail-warnings" class="warning-list"></ul>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/history-detail.js"></script>
+  </body>
+</html>

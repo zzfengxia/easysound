@@ -50,11 +50,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="EasySound", lifespan=lifespan)
 app.include_router(api_router, prefix="/api")
 app.mount("/media/results", StaticFiles(directory=RESULT_DIR), name="results")
+app.mount("/media/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 @app.get("/")
 async def index():
     return FileResponse(PUBLIC_DIR / "index.html")
+
+
+@app.get("/history")
+async def history_page():
+    return FileResponse(PUBLIC_DIR / "history.html")
+
+
+@app.get("/history/task/{task_id}")
+async def history_detail_page(task_id: str):
+    return FileResponse(PUBLIC_DIR / "history-detail.html")
 
 
 @app.get("/{file_path:path}")

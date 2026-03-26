@@ -23,6 +23,7 @@ const backingMixAmount = document.querySelector("#backingMixAmount");
 const backingMixAmountValue = document.querySelector("#backingMixAmountValue");
 const referenceDurationRatioMin = document.querySelector("#referenceDurationRatioMin");
 const referenceDurationRatioMax = document.querySelector("#referenceDurationRatioMax");
+const HIDDEN_TASKS_STORAGE_KEY = "easysound.hiddenTaskIds";
 
 let selectedPreset = "concert";
 let presetsById = {};
@@ -30,6 +31,7 @@ let defaultPitchConfig = null;
 let defaultStepConfig = null;
 let defaultPolishConfig = null;
 let defaultMixConfig = null;
+let hiddenTaskIds = loadHiddenTaskIds();
 
 async function init() {
   const response = await fetch("/api/config");
@@ -98,27 +100,24 @@ function initializeMixControls(defaultMix) {
 
 function initializeTaskActions() {
   clearTasksButton.addEventListener("click", async () => {
-    const confirmed = window.confirm("确定要清空所有历史任务吗？已完成和失败任务的记录会被删除。");
+    const visibleTaskIds = [...taskList.querySelectorAll("[data-task-id]")]
+      .map((node) => node.dataset.taskId)
+      .filter(Boolean);
+
+    if (!visibleTaskIds.length) {
+      submitMessage.textContent = "当前列表已经是空的。";
+      return;
+    }
+
+    const confirmed = window.confirm("确定只清空当前页面上的任务列表吗？任务记录、上传文件和处理结果都会保留，可在历史页继续查看。");
     if (!confirmed) {
       return;
     }
 
-    clearTasksButton.disabled = true;
-    submitMessage.textContent = "正在清空历史任务…";
-    try {
-      const response = await fetch("/api/tasks", { method: "DELETE" });
-      const payload = await response.json();
-      if (!response.ok) {
-        submitMessage.textContent = payload.detail || payload.error || "清空失败，请稍后再试。";
-        return;
-      }
-      submitMessage.textContent = `已清空 ${payload.cleared || 0} 条历史任务。`;
-      await refreshTasks();
-    } catch (error) {
-      submitMessage.textContent = error.message || "清空失败，请稍后再试。";
-    } finally {
-      clearTasksButton.disabled = false;
-    }
+    visibleTaskIds.forEach((taskId) => hiddenTaskIds.add(taskId));
+    saveHiddenTaskIds(hiddenTaskIds);
+    submitMessage.textContent = `已从当前页面隐藏 ${visibleTaskIds.length} 条记录，可在历史页查看完整任务。`;
+    await refreshTasks();
   });
 }
 
@@ -189,22 +188,24 @@ async function refreshTasks() {
 
 function renderTasks(tasks) {
   taskList.innerHTML = "";
-  const hasActiveTasks = tasks.some((task) => task.status === "queued" || task.status === "processing");
-  clearTasksButton.disabled = hasActiveTasks;
-  clearTasksButton.title = hasActiveTasks ? "还有排队中或处理中的任务，暂时不能清空。" : "清空所有历史任务";
+  const visibleTasks = tasks.filter((task) => !hiddenTaskIds.has(task.id));
+  clearTasksButton.disabled = visibleTasks.length === 0;
+  clearTasksButton.title = visibleTasks.length ? "只隐藏当前页面上的任务列表，不会删除文件或历史记录。" : "当前没有可清空的页面记录。";
 
-  if (!tasks.length) {
+  if (!visibleTasks.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "还没有任务，先上传一段音频试试。";
+    empty.textContent = tasks.length ? "当前页面记录已清空，可去历史页查看全部任务。" : "还没有任务，先上传一段音频试试。";
     taskList.appendChild(empty);
     return;
   }
 
-  tasks.forEach((task) => {
+  visibleTasks.forEach((task) => {
     const fragment = taskTemplate.content.cloneNode(true);
+    const card = fragment.querySelector(".task-card");
     const preset = presetsById[task.scenePreset];
     const progressValue = Math.max(0, Math.min(100, Math.round(task.progress || 0)));
+    card.dataset.taskId = task.id;
     fragment.querySelector(".task-title").textContent = task.originalName;
     fragment.querySelector(".task-subtitle").textContent = buildTaskSubtitle(task, preset);
     fragment.querySelector(".task-status").textContent = formatStatus(task.status);
@@ -354,6 +355,26 @@ function stageCopy(task) {
   return lastNote || "等待处理";
 }
 
+function loadHiddenTaskIds() {
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_TASKS_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((value) => typeof value === "string" && value));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenTaskIds(taskIds) {
+  window.localStorage.setItem(HIDDEN_TASKS_STORAGE_KEY, JSON.stringify([...taskIds]));
+}
+
 function validateReferenceThresholds() {
   const minValue = Number.parseFloat(referenceDurationRatioMin.value);
   const maxValue = Number.parseFloat(referenceDurationRatioMax.value);
@@ -412,6 +433,9 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
+  hiddenTaskIds.delete(payload.task?.id);
+  saveHiddenTaskIds(hiddenTaskIds);
+
   form.reset();
   selectedPreset = "concert";
   form.querySelector('input[name="inputMode"][value="vocals_only"]').checked = true;
@@ -445,3 +469,4 @@ form.addEventListener("submit", async (event) => {
 init().catch((error) => {
   submitMessage.textContent = error.message;
 });
+
