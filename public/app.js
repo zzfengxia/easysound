@@ -32,6 +32,8 @@ let defaultStepConfig = null;
 let defaultPolishConfig = null;
 let defaultMixConfig = null;
 let hiddenTaskIds = loadHiddenTaskIds();
+let refreshTimer = null;
+let activePreviewTaskId = null;
 
 async function init() {
   const response = await fetch("/api/config");
@@ -47,7 +49,7 @@ async function init() {
   initializeMixControls(config.defaultMix);
   initializeTaskActions();
   await refreshTasks();
-  setInterval(refreshTasks, 2000);
+  refreshTimer = setInterval(refreshTasks, 2000);
 }
 
 function initializePitchControls(defaultPitch) {
@@ -117,7 +119,7 @@ function initializeTaskActions() {
     visibleTaskIds.forEach((taskId) => hiddenTaskIds.add(taskId));
     saveHiddenTaskIds(hiddenTaskIds);
     submitMessage.textContent = `已从当前页面隐藏 ${visibleTaskIds.length} 条记录，可在历史页查看完整任务。`;
-    await refreshTasks();
+    await refreshTasks(true);
   });
 }
 
@@ -180,19 +182,25 @@ function renderPresets(presets) {
   });
 }
 
-async function refreshTasks() {
+async function refreshTasks(force = false) {
+  if (!force && activePreviewTaskId) {
+    return;
+  }
   const response = await fetch("/api/tasks");
   const payload = await response.json();
-  renderTasks(payload.tasks);
+  renderTasks(payload.tasks, { preservePreview: !force });
 }
 
-function renderTasks(tasks) {
+function renderTasks(tasks, options = {}) {
+  const { preservePreview = false } = options;
+  const currentPreview = preservePreview ? captureActivePreviewState() : null;
   taskList.innerHTML = "";
   const visibleTasks = tasks.filter((task) => !hiddenTaskIds.has(task.id));
   clearTasksButton.disabled = visibleTasks.length === 0;
   clearTasksButton.title = visibleTasks.length ? "只隐藏当前页面上的任务列表，不会删除文件或历史记录。" : "当前没有可清空的页面记录。";
 
   if (!visibleTasks.length) {
+    activePreviewTaskId = null;
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = tasks.length ? "当前页面记录已清空，可去历史页查看全部任务。" : "还没有任务，先上传一段音频试试。";
@@ -254,7 +262,11 @@ function renderTasks(tasks) {
       result.style.display = "block";
       const fileName = getTaskResultFileName(task);
       resultName.textContent = fileName ? `成品文件：${fileName}` : "成品文件已生成，可以试听和下载。";
-      audio.src = task.resultUrl;
+      audio.dataset.taskId = task.id;
+      if (!currentPreview || currentPreview.taskId !== task.id) {
+        audio.src = task.resultUrl;
+      }
+      bindAudioPreviewEvents(audio, task.id);
       download.href = task.resultUrl;
       download.download = fileName || "处理结果.mp3";
       download.textContent = "下载成品";
@@ -269,6 +281,56 @@ function renderTasks(tasks) {
 
     taskList.appendChild(fragment);
   });
+
+  restoreActivePreview(currentPreview);
+}
+
+function bindAudioPreviewEvents(audio, taskId) {
+  audio.addEventListener("play", () => {
+    activePreviewTaskId = taskId;
+  });
+  audio.addEventListener("pause", () => {
+    if (activePreviewTaskId === taskId && audio.paused) {
+      activePreviewTaskId = null;
+    }
+  });
+  audio.addEventListener("ended", () => {
+    if (activePreviewTaskId === taskId) {
+      activePreviewTaskId = null;
+    }
+  });
+}
+
+function captureActivePreviewState() {
+  const audio = taskList.querySelector(".task-audio:not([hidden])");
+  if (!audio || !activePreviewTaskId || audio.paused) {
+    return null;
+  }
+  return {
+    taskId: activePreviewTaskId,
+    currentTime: audio.currentTime,
+    wasPlaying: !audio.paused,
+    src: audio.currentSrc || audio.src,
+  };
+}
+
+function restoreActivePreview(previewState) {
+  if (!previewState) {
+    return;
+  }
+  const audio = taskList.querySelector(`.task-audio[data-task-id="${previewState.taskId}"]`);
+  if (!audio) {
+    activePreviewTaskId = null;
+    return;
+  }
+  if (!audio.src) {
+    audio.src = previewState.src;
+  }
+  audio.currentTime = previewState.currentTime;
+  if (previewState.wasPlaying) {
+    void audio.play().catch(() => {});
+    activePreviewTaskId = previewState.taskId;
+  }
 }
 
 function buildFallbackAlert(task) {
@@ -463,10 +525,9 @@ form.addEventListener("submit", async (event) => {
   syncProcessingControls();
   renderPresets(Object.values(presetsById));
   submitMessage.textContent = "任务已进入队列，页面会自动刷新状态。";
-  await refreshTasks();
+  await refreshTasks(true);
 });
 
 init().catch((error) => {
   submitMessage.textContent = error.message;
 });
-

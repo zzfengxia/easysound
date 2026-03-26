@@ -15,10 +15,11 @@ class FfmpegAudioProvider:
         cleanup_chain = ",".join([
             "highpass=f=70",
             "lowpass=f=14500",
-            "afftdn=nf=-25",
+            "afftdn=nf=-30:tn=1:tr=1",
+            "agate=mode=downward:range=0.40:threshold=0.018:ratio=10:attack=8:release=320:detection=rms",
             "adeclick",
             "deesser=i=0.4:m=0.5:f=0.5:s=o",
-            "dynaudnorm=f=150:g=7",
+            "dynaudnorm=f=150:g=6:p=0.82:m=10",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", cleanup_chain, str(output_path)])
         return output_path
@@ -55,7 +56,6 @@ class FfmpegAudioProvider:
         presence_cut = 0.5 + normalized * 2.6
         air_cut = 0.3 + normalized * 2.0
         compressor_ratio = 1.1 + normalized * 1.0
-        makeup_gain = 0.4 + normalized * 1.0
         soften_chain = ",".join([
             f"deesser=i={deesser_intensity:.2f}:m=0.45:f=0.45:s=o",
             f"equalizer=f=5200:t=q:w=1.0:g=-{presence_cut:.2f}",
@@ -69,7 +69,6 @@ class FfmpegAudioProvider:
     async def polish_voice(self, source_path: Path, output_path: Path, light_reverb_amount: int = 45) -> Path:
         normalized = max(0.0, min(1.0, light_reverb_amount / 100.0))
         compress_ratio = 1.6 + normalized * 0.9
-        makeup_gain = 1.1 + normalized * 1.2
         presence_boost = 0.7 + normalized * 1.3
         exciter_amount = 0.45 + normalized * 0.75
         exciter_blend = 0.08 + normalized * 0.10
@@ -124,9 +123,13 @@ class FfmpegAudioProvider:
 
     async def normalize_loudness(self, source_path: Path, output_path: Path) -> Path:
         loudness_chain = ",".join([
+            "afftdn=nf=-26:tn=1:tr=1",
+            "agate=mode=downward:range=0.30:threshold=0.014:ratio=7:attack=10:release=360:detection=rms",
             "acompressor=threshold=-22dB:ratio=1.55:attack=20:release=220",
             "dynaudnorm=f=180:g=6:p=0.85:m=12",
             "loudnorm=I=-16:LRA=10:TP=-1.5",
+            "afftdn=nf=-24:tn=1:tr=1",
+            "agate=mode=downward:range=0.42:threshold=0.012:ratio=10:attack=12:release=480:detection=rms",
             "alimiter=limit=0.95",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", loudness_chain, str(output_path)])
@@ -135,6 +138,3 @@ class FfmpegAudioProvider:
     async def export_final(self, source_path: Path, output_path: Path) -> Path:
         await run_ffmpeg(["-i", str(source_path), "-c:a", "libmp3lame", "-b:a", "192k", str(output_path)])
         return output_path
-
-
-
