@@ -15,6 +15,7 @@ PitchFallbackCategory = Literal["duration_ratio", "low_coverage", "unstable_refe
 class ProcessingSteps(BaseModel):
     noiseReduction: bool = True
     pitchCorrection: bool = True
+    softenVoice: bool = True
     polish: bool = True
     sceneEnhancement: bool = True
 
@@ -34,6 +35,11 @@ class PitchSettings(BaseModel):
     referenceOriginalName: str | None = None
     referenceStoredName: str | None = None
     referencePath: str | None = None
+
+
+class PolishSettings(BaseModel):
+    softenAmount: int = 55
+    lightReverbAmount: int = 45
 
 
 class TimelineEntry(BaseModel):
@@ -61,6 +67,7 @@ class TaskRecord(BaseModel):
     scenePreset: str
     steps: ProcessingSteps
     pitch: PitchSettings = Field(default_factory=PitchSettings)
+    polishSettings: PolishSettings = Field(default_factory=PolishSettings)
     status: TaskStatus
     progress: int = 0
     currentStage: str = "queued"
@@ -81,6 +88,7 @@ class ConfigResponse(BaseModel):
     limits: dict[str, int]
     inputModes: dict[str, str]
     defaultSteps: ProcessingSteps
+    defaultPolish: PolishSettings
     pitchModes: dict[str, str]
     pitchStyles: dict[str, str]
     defaultPitch: PitchSettings
@@ -93,3 +101,4 @@ class TaskEnvelope(BaseModel):
 
 class TaskListEnvelope(BaseModel):
     tasks: list[TaskRecord]
+

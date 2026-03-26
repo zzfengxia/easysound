@@ -15,13 +15,15 @@ logger = logging.getLogger(__name__)
 
 STAGE_PROGRESS = {
     "preflight": 10,
-    "cleanup": 28,
-    "separation": 45,
-    "pitch_correction": 60,
-    "polish": 74,
+    "cleanup": 22,
+    "separation": 36,
+    "pitch_correction": 52,
+    "soften": 64,
+    "polish": 76,
     "scene": 86,
-    "mixdown": 93,
-    "export": 98,
+    "mixdown": 91,
+    "loudness": 96,
+    "export": 99,
 }
 
 
@@ -118,17 +120,24 @@ class AudioPipeline:
                 await self.task_store.add_warning(task.id, corrected["note"])
             await complete_stage("pitch_correction")
 
+        if task.steps.softenVoice:
+            await mark_stage("soften", f"正在柔化刺耳感，让人声更顺更柔和。当前柔和程度 {task.polishSettings.softenAmount}。")
+            softened_path = temp_dir / "05-soften.wav"
+            await self.providers["audio"].soften_voice(current_path, softened_path, amount=task.polishSettings.softenAmount)
+            current_path = softened_path
+            await complete_stage("soften")
+
         if task.steps.polish:
-            await mark_stage("polish", "正在做人声润色和轻混响。")
-            polished_path = temp_dir / "05-polish.wav"
-            await self.providers["audio"].polish_voice(current_path, polished_path)
+            await mark_stage("polish", f"正在做人声润色和增强基础轻混响。当前轻混响程度 {task.polishSettings.lightReverbAmount}。")
+            polished_path = temp_dir / "06-polish.wav"
+            await self.providers["audio"].polish_voice(current_path, polished_path, light_reverb_amount=task.polishSettings.lightReverbAmount)
             current_path = polished_path
             await complete_stage("polish")
 
         if task.steps.sceneEnhancement:
             preset = get_scene_preset(task.scenePreset)
             await mark_stage("scene", f"正在应用场景预设：{preset['name']}。")
-            scene_result = await self.providers["audio"].apply_scene_preset(current_path, task.scenePreset, temp_dir / "06-scene.wav")
+            scene_result = await self.providers["audio"].apply_scene_preset(current_path, task.scenePreset, temp_dir / "07-scene.wav")
             current_path = scene_result["outputPath"]
             await self.task_store.add_processing_note(task.id, f"Scene preset: {scene_result['preset']['name']}")
             logger.info("场景效果应用完成，任务ID=%s，场景=%s", task.id, scene_result["preset"]["name"])
@@ -136,10 +145,17 @@ class AudioPipeline:
 
         if task.inputMode == INPUT_MODES["MIX"] and backing_path is not None:
             await mark_stage("mixdown", "正在将处理后的人声回混到伴奏中。")
-            remixed_path = temp_dir / "07-mix.wav"
+            remixed_path = temp_dir / "08-mix.wav"
             await self.providers["audio"].remix(current_path, backing_path, remixed_path)
             current_path = remixed_path
             await complete_stage("mixdown")
+
+        await mark_stage("loudness", "正在统一整首音量，让输出响度更均匀自然。")
+        loudness_path = temp_dir / "09-loudness.wav"
+        await self.providers["audio"].normalize_loudness(current_path, loudness_path)
+        current_path = loudness_path
+        logger.info("响度统一完成，任务ID=%s，策略=稳妥自然（轻压缩 + 动态平滑 + loudnorm + limiter）", task.id)
+        await complete_stage("loudness")
 
         await mark_stage("export", "正在导出最终成品音频。")
         result_path = RESULT_DIR / self._build_result_filename(task.originalName)
@@ -155,6 +171,7 @@ class AudioPipeline:
             "inputMode": task.inputMode,
             "steps": task.steps.model_dump(),
             "pitch": refreshed.pitch.model_dump() if refreshed else task.pitch.model_dump(),
+            "polishSettings": refreshed.polishSettings.model_dump() if refreshed else task.polishSettings.model_dump(),
             "warnings": refreshed.warnings if refreshed else [],
             "processingNotes": refreshed.processingNotes if refreshed else [],
             "preset": get_scene_preset(task.scenePreset),
@@ -183,3 +200,4 @@ class AudioPipeline:
         safe_stem = re.sub(r'[\\/:*?"<>|]+', "_", stem).strip(" .") or "audio"
         timestamp = int(time())
         return f"{safe_stem}-处理-{timestamp}.mp3"
+

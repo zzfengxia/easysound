@@ -7,12 +7,14 @@ import time
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from app.core.config import (
+    DEFAULT_LIGHT_REVERB_AMOUNT,
     DEFAULT_PITCH_MODE,
     DEFAULT_PITCH_STRENGTH,
     DEFAULT_PITCH_STYLE,
     DEFAULT_PROCESSING_STEPS,
     DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     DEFAULT_REFERENCE_DURATION_RATIO_MIN,
+    DEFAULT_SOFTEN_AMOUNT,
     INPUT_MODES,
     MAX_DURATION_SECONDS,
     MAX_FILE_SIZE_BYTES,
@@ -21,7 +23,7 @@ from app.core.config import (
     UPLOAD_DIR,
 )
 from app.core.scene_presets import list_scene_presets
-from app.schemas import ConfigResponse, PitchSettings, TaskEnvelope, TaskListEnvelope
+from app.schemas import ConfigResponse, PitchSettings, PolishSettings, TaskEnvelope, TaskListEnvelope
 from app.services.upload_payload import normalize_upload_payload
 
 router = APIRouter()
@@ -39,6 +41,10 @@ async def get_config() -> ConfigResponse:
         limits={"maxFileSizeBytes": MAX_FILE_SIZE_BYTES, "maxDurationSeconds": MAX_DURATION_SECONDS},
         inputModes=INPUT_MODES,
         defaultSteps=DEFAULT_PROCESSING_STEPS,
+        defaultPolish=PolishSettings(
+            softenAmount=DEFAULT_SOFTEN_AMOUNT,
+            lightReverbAmount=DEFAULT_LIGHT_REVERB_AMOUNT,
+        ),
         pitchModes=PITCH_MODES,
         pitchStyles=PITCH_STYLES,
         defaultPitch=PitchSettings(
@@ -85,11 +91,14 @@ async def create_task(
     scenePreset: str = Form("concert"),
     noiseReduction: bool = Form(DEFAULT_PROCESSING_STEPS["noiseReduction"]),
     pitchCorrection: bool = Form(DEFAULT_PROCESSING_STEPS["pitchCorrection"]),
+    softenVoice: bool = Form(DEFAULT_PROCESSING_STEPS["softenVoice"]),
     polish: bool = Form(DEFAULT_PROCESSING_STEPS["polish"]),
     sceneEnhancement: bool = Form(DEFAULT_PROCESSING_STEPS["sceneEnhancement"]),
     pitchMode: str = Form(DEFAULT_PITCH_MODE),
     pitchStyle: str = Form(DEFAULT_PITCH_STYLE),
     pitchStrength: int = Form(DEFAULT_PITCH_STRENGTH),
+    softenAmount: int = Form(DEFAULT_SOFTEN_AMOUNT),
+    lightReverbAmount: int = Form(DEFAULT_LIGHT_REVERB_AMOUNT),
     referenceDurationRatioMin: float = Form(DEFAULT_REFERENCE_DURATION_RATIO_MIN),
     referenceDurationRatioMax: float = Form(DEFAULT_REFERENCE_DURATION_RATIO_MAX),
 ) -> TaskEnvelope:
@@ -100,11 +109,14 @@ async def create_task(
         scene_preset=scenePreset,
         noise_reduction=noiseReduction,
         pitch_correction=pitchCorrection,
+        soften_voice=softenVoice,
         polish=polish,
         scene_enhancement=sceneEnhancement,
         pitch_mode=pitchMode,
         pitch_style=pitchStyle,
         pitch_strength=pitchStrength,
+        soften_amount=softenAmount,
+        light_reverb_amount=lightReverbAmount,
         reference_duration_ratio_min=referenceDurationRatioMin,
         reference_duration_ratio_max=referenceDurationRatioMax,
         midi_file=midiFile,
@@ -141,7 +153,9 @@ async def create_task(
         scenePreset=payload["scenePreset"],
         steps=payload["steps"],
         pitch=pitch_settings,
+        polishSettings=payload["polishSettings"],
     )
     await request.app.state.job_queue.enqueue(task.id)
     logger.info("任务已入队，任务ID=%s，原始文件=%s", task.id, task.originalName)
     return TaskEnvelope(task=task)
+

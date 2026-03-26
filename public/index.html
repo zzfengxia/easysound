@@ -13,7 +13,7 @@
           <p class="eyebrow">EasySound v1</p>
           <h1>把录好的歌，整理成一首更像成品的版本。</h1>
           <p class="lede">
-            上传音频，选择干声或带伴奏模式，按步骤处理降噪、修音、润色和场景效果。系统会用异步任务完成处理，并生成可试听、可下载的最终成品。
+            上传音频，选择干声或带伴奏模式，按步骤处理降噪、修音、柔和、润色和场景效果。系统会用异步任务完成处理，并生成可试听、可下载的最终成品。
           </p>
           <div class="hero-meta">
             <span>服务端异步处理</span>
@@ -27,8 +27,8 @@
             <li>音频预检</li>
             <li>降噪去杂</li>
             <li>音高跟踪与修音</li>
-            <li>润色与空间效果</li>
-            <li>导出成品</li>
+            <li>声音柔和与润色</li>
+            <li>响度统一与导出</li>
           </ol>
         </div>
       </section>
@@ -68,8 +68,24 @@
             <legend>处理步骤</legend>
             <label class="toggle-row"><input type="checkbox" name="noiseReduction" checked /> 降噪与去杂音</label>
             <label class="toggle-row"><input type="checkbox" name="pitchCorrection" checked /> 自动修音</label>
+            <label class="toggle-row"><input type="checkbox" name="softenVoice" checked /> 声音柔和</label>
+            <div id="soften-controls" class="threshold-block" hidden>
+              <div class="threshold-head">
+                <strong>柔和程度 <span id="softenAmountValue">55</span></strong>
+                <small>数值越高，刺耳感和高频硬边压得越明显；过高时声音可能会稍微偏闷。</small>
+              </div>
+              <input id="softenAmount" name="softenAmount" type="range" min="0" max="100" value="55" />
+            </div>
             <label class="toggle-row"><input type="checkbox" name="polish" checked /> 音色润色与轻混响</label>
+            <div id="light-reverb-controls" class="threshold-block" hidden>
+              <div class="threshold-head">
+                <strong>轻混响程度 <span id="lightReverbAmountValue">45</span></strong>
+                <small>数值越高，空间感和尾音越明显；过高时人声会更靠后、更湿一些。</small>
+              </div>
+              <input id="lightReverbAmount" name="lightReverbAmount" type="range" min="0" max="100" value="45" />
+            </div>
             <label class="toggle-row"><input type="checkbox" name="sceneEnhancement" checked /> 场景效果</label>
+            <p class="field-help">声音柔和会优先压刺耳感、削弱高频硬边；音色润色与轻混响负责补一点空气感和空间感；最终还会增加一层整首音量统一，让成品的响度更稳定。</p>
           </fieldset>
 
           <fieldset class="field-group" id="pitch-settings">
@@ -207,3 +223,4 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
+

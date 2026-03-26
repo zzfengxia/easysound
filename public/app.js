@@ -8,22 +8,33 @@ const clearTasksButton = document.querySelector("#clear-tasks-button");
 const midiUploadBlock = document.querySelector("#midi-upload-block");
 const referenceUploadBlock = document.querySelector("#reference-upload-block");
 const referenceThresholdBlock = document.querySelector("#reference-threshold-block");
+const softenControls = document.querySelector("#soften-controls");
+const lightReverbControls = document.querySelector("#light-reverb-controls");
 const pitchStrength = document.querySelector("#pitchStrength");
 const pitchStrengthValue = document.querySelector("#pitchStrengthValue");
+const softenAmount = document.querySelector("#softenAmount");
+const softenAmountValue = document.querySelector("#softenAmountValue");
+const lightReverbAmount = document.querySelector("#lightReverbAmount");
+const lightReverbAmountValue = document.querySelector("#lightReverbAmountValue");
 const referenceDurationRatioMin = document.querySelector("#referenceDurationRatioMin");
 const referenceDurationRatioMax = document.querySelector("#referenceDurationRatioMax");
 
 let selectedPreset = "concert";
 let presetsById = {};
 let defaultPitchConfig = null;
+let defaultStepConfig = null;
+let defaultPolishConfig = null;
 
 async function init() {
   const response = await fetch("/api/config");
   const config = await response.json();
   defaultPitchConfig = config.defaultPitch;
+  defaultStepConfig = config.defaultSteps;
+  defaultPolishConfig = config.defaultPolish;
   presetsById = Object.fromEntries(config.presets.map((preset) => [preset.id, preset]));
   renderPresets(config.presets);
   initializePitchControls(config.defaultPitch);
+  initializeProcessingControls(config.defaultPolish);
   initializeTaskActions();
   await refreshTasks();
   setInterval(refreshTasks, 2000);
@@ -42,6 +53,25 @@ function initializePitchControls(defaultPitch) {
     input.addEventListener("change", syncPitchModeUI);
   });
   syncPitchModeUI();
+}
+
+function initializeProcessingControls(defaultPolish) {
+  softenAmount.value = defaultPolish?.softenAmount ?? 55;
+  softenAmountValue.textContent = softenAmount.value;
+  lightReverbAmount.value = defaultPolish?.lightReverbAmount ?? 45;
+  lightReverbAmountValue.textContent = lightReverbAmount.value;
+  softenAmount.addEventListener("input", () => {
+    softenAmountValue.textContent = softenAmount.value;
+  });
+  lightReverbAmount.addEventListener("input", () => {
+    lightReverbAmountValue.textContent = lightReverbAmount.value;
+  });
+  form.noiseReduction.addEventListener("change", syncProcessingControls);
+  form.pitchCorrection.addEventListener("change", syncProcessingControls);
+  form.softenVoice.addEventListener("change", syncProcessingControls);
+  form.polish.addEventListener("change", syncProcessingControls);
+  form.sceneEnhancement.addEventListener("change", syncProcessingControls);
+  syncProcessingControls();
 }
 
 function initializeTaskActions() {
@@ -92,6 +122,11 @@ function syncPitchModeUI() {
       referenceDurationRatioMax.value = Number(defaultPitchConfig.referenceDurationRatioMax || 1.67).toFixed(2);
     }
   }
+}
+
+function syncProcessingControls() {
+  setBlockVisible(softenControls, !!form.softenVoice.checked);
+  setBlockVisible(lightReverbControls, !!form.polish.checked);
 }
 
 function renderPresets(presets) {
@@ -239,7 +274,9 @@ function buildTaskSubtitle(task, preset) {
   const scene = preset?.name || task.scenePreset;
   const pitchMode = formatPitchMode(task.pitch?.pitchMode);
   const pitchStyle = task.pitch?.pitchStyle === "autotune" ? "Auto-Tune" : "自然修音";
-  return `${mode} · ${scene} · ${pitchMode} · ${pitchStyle}`;
+  const soften = task.polishSettings?.softenAmount ?? 55;
+  const reverb = task.polishSettings?.lightReverbAmount ?? 45;
+  return `${mode} · ${scene} · ${pitchMode} · ${pitchStyle} · 柔和 ${soften} · 轻混响 ${reverb}`;
 }
 
 function formatPitchMode(mode) {
@@ -318,10 +355,13 @@ form.addEventListener("submit", async (event) => {
   data.set("scenePreset", selectedPreset);
   data.set("noiseReduction", String(form.noiseReduction.checked));
   data.set("pitchCorrection", String(form.pitchCorrection.checked));
+  data.set("softenVoice", String(form.softenVoice.checked));
   data.set("polish", String(form.polish.checked));
   data.set("sceneEnhancement", String(form.sceneEnhancement.checked));
   data.set("pitchStyle", form.pitchStyle.value);
   data.set("pitchStrength", String(form.pitchStrength.value));
+  data.set("softenAmount", String(form.softenAmount.value));
+  data.set("lightReverbAmount", String(form.lightReverbAmount.value));
   data.set("pitchMode", selectedPitchMode);
   if (selectedPitchMode === "reference_vocal") {
     data.set("referenceDurationRatioMin", Number.parseFloat(referenceDurationRatioMin.value).toFixed(2));
@@ -341,13 +381,23 @@ form.addEventListener("submit", async (event) => {
 
   form.reset();
   selectedPreset = "concert";
+  form.noiseReduction.checked = defaultStepConfig?.noiseReduction ?? true;
+  form.pitchCorrection.checked = defaultStepConfig?.pitchCorrection ?? true;
+  form.softenVoice.checked = defaultStepConfig?.softenVoice ?? true;
+  form.polish.checked = defaultStepConfig?.polish ?? true;
+  form.sceneEnhancement.checked = defaultStepConfig?.sceneEnhancement ?? true;
   pitchStrength.value = defaultPitchConfig?.pitchStrength || 55;
   pitchStrengthValue.textContent = defaultPitchConfig?.pitchStrength || 55;
+  softenAmount.value = defaultPolishConfig?.softenAmount || 55;
+  softenAmountValue.textContent = defaultPolishConfig?.softenAmount || 55;
+  lightReverbAmount.value = defaultPolishConfig?.lightReverbAmount || 45;
+  lightReverbAmountValue.textContent = defaultPolishConfig?.lightReverbAmount || 45;
   form.pitchStyle.value = defaultPitchConfig?.pitchStyle || "natural";
   referenceDurationRatioMin.value = Number(defaultPitchConfig?.referenceDurationRatioMin || 0.6).toFixed(2);
   referenceDurationRatioMax.value = Number(defaultPitchConfig?.referenceDurationRatioMax || 1.67).toFixed(2);
   form.querySelector('input[name="pitchMode"][value="auto_scale"]').checked = true;
   syncPitchModeUI();
+  syncProcessingControls();
   renderPresets(Object.values(presetsById));
   submitMessage.textContent = "任务已进入队列，页面会自动刷新状态。";
   await refreshTasks();
@@ -356,3 +406,4 @@ form.addEventListener("submit", async (event) => {
 init().catch((error) => {
   submitMessage.textContent = error.message;
 });
+

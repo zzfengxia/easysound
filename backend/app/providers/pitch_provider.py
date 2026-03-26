@@ -120,8 +120,23 @@ class AutoPitchProvider:
 
         if pitch_mode_used == "auto_scale":
             scale = self._estimate_scale(analysis["segments"])
-            self._apply_auto_targets(analysis["segments"], scale, settings.pitchStyle, settings.pitchStrength)
+            auto_summary = self._apply_auto_targets(analysis["segments"], scale, settings.pitchStyle, settings.pitchStrength)
             analysis["estimated_scale"] = scale
+            analysis["auto_scale_summary"] = auto_summary
+            logger.info(
+                "自动推断修音分析：风格=%s，强度=%s，估计调式=%s %s，有声段=%s，实际修正段=%s，接近目标跳过=%s，低置信度跳过=%s，过渡段保守跳过=%s",
+                settings.pitchStyle,
+                settings.pitchStrength,
+                NOTE_NAMES[scale["root"]],
+                scale["mode"],
+                auto_summary["voicedSegments"],
+                auto_summary["correctedSegments"],
+                auto_summary["closeSegments"],
+                auto_summary["lowConfidenceSegments"],
+                auto_summary["transitionSegments"],
+            )
+            if auto_summary["correctedSegments"] <= max(1, auto_summary["voicedSegments"] // 10):
+                warnings.append("原始音高已接近目标，自动修音影响较小。")
 
         rendered = await self._render_segments(
             source_path=source_path,
@@ -250,19 +265,65 @@ class AutoPitchProvider:
                     best = {"root": root, "mode": mode, "score": score, "pitch_classes": shifted}
         return best
 
-    def _apply_auto_targets(self, segments: list[PitchSegment], scale: dict, style: str, strength: int) -> None:
-        threshold_cents = 35 if style == "natural" else 8
-        snap_ratio = 0.42 + (strength / 100.0) * (0.5 if style == "natural" else 0.58)
-        for segment in segments:
-            if not segment.voiced or segment.source_midi is None:
-                continue
+    def _apply_auto_targets(self, segments: list[PitchSegment], scale: dict, style: str, strength: int) -> dict:
+        voiced_segments = [segment for segment in segments if segment.voiced and segment.source_midi is not None]
+        summary = {
+            "voicedSegments": len(voiced_segments),
+            "correctedSegments": 0,
+            "closeSegments": 0,
+            "lowConfidenceSegments": 0,
+            "transitionSegments": 0,
+        }
+        normalized_strength = max(0.0, min(1.0, strength / 100.0))
+        for segment in voiced_segments:
             source = segment.source_midi
+            duration = segment.end - segment.start
+            confidence = segment.confidence
             nearest_in_scale = self._nearest_scale_midi(source, scale["pitch_classes"])
-            diff_cents = (nearest_in_scale - source) * 100.0
-            if abs(diff_cents) < threshold_cents:
+            raw_shift = nearest_in_scale - source
+            diff_cents = abs(raw_shift) * 100.0
+            is_transition = duration < 0.16
+            is_low_confidence = confidence < 0.62
+
+            protect_threshold = (28 if style == "natural" else 12) + (1.0 - normalized_strength) * 18
+            if is_transition:
+                protect_threshold += 12
+            if is_low_confidence:
+                protect_threshold += 10
+
+            if diff_cents <= protect_threshold:
                 segment.target_midi = source
+                summary["closeSegments"] += 1
+                continue
+
+            if is_low_confidence:
+                summary["lowConfidenceSegments"] += 1
+            if is_transition:
+                summary["transitionSegments"] += 1
+
+            if style == "natural":
+                max_pull = 0.8 + normalized_strength * 0.7
+                blend = 0.18 + (normalized_strength ** 1.35) * 0.34
             else:
-                segment.target_midi = source + (nearest_in_scale - source) * snap_ratio
+                max_pull = 1.5 + normalized_strength * 1.1
+                blend = 0.42 + (normalized_strength ** 1.1) * 0.34
+
+            if duration >= 0.26 and confidence >= 0.75:
+                blend *= 1.08
+            if is_transition:
+                blend *= 0.55
+            if is_low_confidence:
+                blend *= 0.68
+
+            limited = max(min(raw_shift, max_pull), -max_pull)
+            target = source + limited * blend
+            if abs(target - source) * 100.0 < 10:
+                segment.target_midi = source
+                summary["closeSegments"] += 1
+                continue
+            segment.target_midi = target
+            summary["correctedSegments"] += 1
+        return summary
 
     def _load_midi_notes(self, midi_path: str | None) -> list[dict]:
         if not midi_path or pretty_midi is None:
@@ -299,6 +360,16 @@ class AutoPitchProvider:
             }
 
         reference_analysis = self._extract_pitch(Path(reference_path))
+        reference_duration = reference_analysis["duration_seconds"]
+        duration_ratio = reference_duration / max(source_duration, 0.001)
+        logger.info(
+            "参考干声修音分析：待修干声时长=%.2fs，参考干声时长=%.2fs，时长比例=%.2f，允许区间=%.2f-%.2f",
+            source_duration,
+            reference_duration,
+            duration_ratio,
+            min_ratio,
+            max_ratio,
+        )
         reference_segments = self._smooth_reference_segments(reference_analysis["segments"])
         voiced_source = [segment for segment in source_segments if segment.voiced and segment.source_midi is not None]
         voiced_reference = [segment for segment in reference_segments if segment.voiced and segment.source_midi is not None]
@@ -310,12 +381,11 @@ class AutoPitchProvider:
             return {
                 "applied": False,
                 "warnings": warnings,
-                "alignment": {"matchedSegments": 0, "coverage": 0.0},
+                "alignment": {"matchedSegments": 0, "coverage": 0.0, "durationRatio": duration_ratio},
                 "fallbackReason": reason,
                 "fallbackCategory": "unstable_reference",
             }
 
-        duration_ratio = reference_analysis["duration_seconds"] / max(source_duration, 0.001)
         if duration_ratio < min_ratio or duration_ratio > max_ratio:
             reason = (
                 f"参考干声与待修音频时长比例超出阈值（当前 {duration_ratio:.2f}，允许 {min_ratio:.2f} - {max_ratio:.2f}），已回退为自动修音。"
@@ -343,17 +413,33 @@ class AutoPitchProvider:
 
         matched_duration = 0.0
         large_octave_jumps = 0
+        corrected_matches = 0
+        skipped_matches = 0
         for source_index, reference_index in matches:
             source_segment = voiced_source[source_index]
             reference_segment = voiced_reference[reference_index]
             diff = reference_segment.source_midi - source_segment.source_midi
             if abs(diff) >= 7.0:
                 large_octave_jumps += 1
+                skipped_matches += 1
                 continue
-            source_segment.target_midi = self._blend_reference_target(source_segment, reference_segment)
+            target = self._blend_reference_target(source_segment, reference_segment)
+            if target is None:
+                skipped_matches += 1
+                continue
+            source_segment.target_midi = target
+            corrected_matches += 1
             matched_duration += source_segment.end - source_segment.start
 
         coverage = matched_duration / max(sum(segment.end - segment.start for segment in voiced_source), 0.001)
+        logger.info(
+            "参考干声对齐结果：匹配段数=%s，实际修正段数=%s，跳过段数=%s，对齐覆盖率=%.0f%%，大跳进拒绝数=%s",
+            len(matches),
+            corrected_matches,
+            skipped_matches,
+            coverage * 100,
+            large_octave_jumps,
+        )
         if coverage < 0.42:
             reason = f"参考干声对齐覆盖率过低（当前 {coverage:.0%}），已回退为自动修音。"
             warnings.append(reason)
@@ -385,6 +471,7 @@ class AutoPitchProvider:
             "warnings": warnings,
             "alignment": {
                 "matchedSegments": len(matches),
+                "correctedMatches": corrected_matches,
                 "coverage": coverage,
                 "durationRatio": duration_ratio,
                 "octaveJumpRejects": large_octave_jumps,
@@ -465,12 +552,20 @@ class AutoPitchProvider:
                 used_reference.add(best_reference)
         return matches
 
-    def _blend_reference_target(self, source_segment: PitchSegment, reference_segment: PitchSegment) -> float:
-        source = source_segment.source_midi or 0.0
-        target = reference_segment.source_midi or source
+    def _blend_reference_target(self, source_segment: PitchSegment, reference_segment: PitchSegment) -> float | None:
+        if source_segment.source_midi is None or reference_segment.source_midi is None:
+            return None
+        segment_duration = source_segment.end - source_segment.start
+        if source_segment.confidence < 0.58 or segment_duration < 0.14:
+            return None
+        source = source_segment.source_midi
+        target = reference_segment.source_midi
         raw_shift = target - source
-        limited = max(min(raw_shift, 2.5), -2.5)
-        return source + limited * 0.9
+        diff_cents = abs(raw_shift) * 100.0
+        if diff_cents <= 18:
+            return source
+        limited = max(min(raw_shift, 0.85), -0.85)
+        return source + limited * 0.42
 
     def _nearest_scale_midi(self, midi_value: float, pitch_classes: set[int]) -> float:
         candidates = []
@@ -525,11 +620,22 @@ class AutoPitchProvider:
         if segment.source_midi is None or segment.target_midi is None:
             return 0.0
         raw_shift = segment.target_midi - segment.source_midi
+        normalized_strength = max(0.0, min(1.0, strength / 100.0))
+        duration = segment.end - segment.start
+        confidence = segment.confidence
         if style == "natural":
-            limited = max(min(raw_shift, 1.5), -1.5)
-            return limited * (0.35 + (strength / 100.0) * 0.45)
-        limited = max(min(raw_shift, 4.0), -4.0)
-        return limited * (0.75 + (strength / 100.0) * 0.25)
+            limited = max(min(raw_shift, 1.1), -1.1)
+            response = 0.2 + (normalized_strength ** 1.35) * 0.34
+        else:
+            limited = max(min(raw_shift, 2.8), -2.8)
+            response = 0.52 + (normalized_strength ** 1.1) * 0.36
+        if duration < 0.16:
+            response *= 0.58
+        if confidence < 0.62:
+            response *= 0.72
+        if duration >= 0.28 and confidence >= 0.75:
+            response *= 1.06
+        return limited * response
 
     def _build_result_note(self, pitch_mode: str, pitch_style: str, corrected_segments: int, analysis: dict) -> str:
         engine = analysis.get("engine", "unknown")
@@ -547,3 +653,4 @@ class AutoPitchProvider:
         if root is None:
             return f"Pitch correction rendered with {engine} tracking across {corrected_segments} segments."
         return f"Pitch correction rendered with {engine} tracking, estimated {NOTE_NAMES[root]} {mode}, across {corrected_segments} segments."
+

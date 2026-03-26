@@ -51,13 +51,40 @@ class FfmpegAudioProvider:
             "note": "Used a local mid/side heuristic separation. Replace this provider with an ML/API stem splitter for production quality.",
         }
 
-    async def polish_voice(self, source_path: Path, output_path: Path) -> Path:
+    async def soften_voice(self, source_path: Path, output_path: Path, amount: int = 55) -> Path:
+        normalized = max(0.0, min(1.0, amount / 100.0))
+        deesser_intensity = 0.12 + normalized * 0.24
+        presence_cut = 0.5 + normalized * 2.6
+        air_cut = 0.3 + normalized * 2.0
+        compressor_ratio = 1.1 + normalized * 1.0
+        makeup_gain = 0.4 + normalized * 1.0
+        soften_chain = ",".join([
+            f"deesser=i={deesser_intensity:.2f}:m=0.45:f=0.45:s=o",
+            f"equalizer=f=5200:t=q:w=1.0:g=-{presence_cut:.2f}",
+            f"equalizer=f=8600:t=q:w=1.2:g=-{air_cut:.2f}",
+            f"acompressor=threshold=-20dB:ratio={compressor_ratio:.2f}:attack=10:release=140:makeup={makeup_gain:.2f}",
+            "alimiter=limit=0.97",
+        ])
+        await run_ffmpeg(["-i", str(source_path), "-af", soften_chain, str(output_path)])
+        return output_path
+
+    async def polish_voice(self, source_path: Path, output_path: Path, light_reverb_amount: int = 45) -> Path:
+        normalized = max(0.0, min(1.0, light_reverb_amount / 100.0))
+        compress_ratio = 1.6 + normalized * 0.9
+        makeup_gain = 1.1 + normalized * 1.2
+        presence_boost = 0.7 + normalized * 1.3
+        exciter_amount = 0.45 + normalized * 0.75
+        exciter_blend = 0.08 + normalized * 0.10
+        reverb_decay = 0.38 + normalized * 0.34
+        reverb_mix_one = 0.04 + normalized * 0.12
+        reverb_mix_two = 0.02 + normalized * 0.08
+        reverb_mix_three = 0.01 + normalized * 0.05
         polish_chain = ",".join([
-            "acompressor=threshold=-18dB:ratio=2.2:attack=15:release=120:makeup=2",
-            "equalizer=f=180:t=q:w=1.0:g=-1.5",
-            "equalizer=f=3500:t=q:w=1.0:g=2.2",
-            "aexciter=amount=1.1:drive=6.5:blend=0.18",
-            "aecho=0.82:0.55:35|70:0.10|0.06",
+            f"acompressor=threshold=-18dB:ratio={compress_ratio:.2f}:attack=15:release=140:makeup={makeup_gain:.2f}",
+            "equalizer=f=180:t=q:w=1.0:g=-1.2",
+            f"equalizer=f=3200:t=q:w=1.0:g={presence_boost:.2f}",
+            f"aexciter=amount={exciter_amount:.2f}:drive=5.5:blend={exciter_blend:.2f}",
+            f"aecho=0.84:{reverb_decay:.2f}:42|84|126:{reverb_mix_one:.2f}|{reverb_mix_two:.2f}|{reverb_mix_three:.2f}",
         ])
         await run_ffmpeg(["-i", str(source_path), "-af", polish_chain, str(output_path)])
         return output_path
@@ -82,6 +109,18 @@ class FfmpegAudioProvider:
         ])
         return output_path
 
+    async def normalize_loudness(self, source_path: Path, output_path: Path) -> Path:
+        loudness_chain = ",".join([
+            "acompressor=threshold=-22dB:ratio=1.55:attack=20:release=220:makeup=1.4",
+            "dynaudnorm=f=180:g=6:p=0.85:m=12",
+            "loudnorm=I=-16:LRA=10:TP=-1.5",
+            "alimiter=limit=0.95",
+        ])
+        await run_ffmpeg(["-i", str(source_path), "-af", loudness_chain, str(output_path)])
+        return output_path
+
     async def export_final(self, source_path: Path, output_path: Path) -> Path:
         await run_ffmpeg(["-i", str(source_path), "-c:a", "libmp3lame", "-b:a", "192k", str(output_path)])
         return output_path
+
+

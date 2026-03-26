@@ -7,12 +7,14 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIDI_EXTENSIONS,
+    DEFAULT_LIGHT_REVERB_AMOUNT,
     DEFAULT_PITCH_MODE,
     DEFAULT_PITCH_STRENGTH,
     DEFAULT_PITCH_STYLE,
     DEFAULT_PROCESSING_STEPS,
     DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     DEFAULT_REFERENCE_DURATION_RATIO_MIN,
+    DEFAULT_SOFTEN_AMOUNT,
     INPUT_MODES,
     MAX_FILE_SIZE_BYTES,
     MAX_MIDI_FILE_SIZE_BYTES,
@@ -21,7 +23,7 @@ from app.core.config import (
     PITCH_STYLES,
 )
 from app.core.scene_presets import DEFAULT_SCENE_PRESET, SCENE_PRESETS
-from app.schemas import PitchSettings, ProcessingSteps
+from app.schemas import PitchSettings, PolishSettings, ProcessingSteps
 
 
 async def normalize_upload_payload(
@@ -30,11 +32,14 @@ async def normalize_upload_payload(
     scene_preset: str = DEFAULT_SCENE_PRESET,
     noise_reduction: bool = DEFAULT_PROCESSING_STEPS["noiseReduction"],
     pitch_correction: bool = DEFAULT_PROCESSING_STEPS["pitchCorrection"],
+    soften_voice: bool = DEFAULT_PROCESSING_STEPS["softenVoice"],
     polish: bool = DEFAULT_PROCESSING_STEPS["polish"],
     scene_enhancement: bool = DEFAULT_PROCESSING_STEPS["sceneEnhancement"],
     pitch_mode: str = DEFAULT_PITCH_MODE,
     pitch_style: str = DEFAULT_PITCH_STYLE,
     pitch_strength: int = DEFAULT_PITCH_STRENGTH,
+    soften_amount: int = DEFAULT_SOFTEN_AMOUNT,
+    light_reverb_amount: int = DEFAULT_LIGHT_REVERB_AMOUNT,
     reference_duration_ratio_min: float = DEFAULT_REFERENCE_DURATION_RATIO_MIN,
     reference_duration_ratio_max: float = DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     midi_file: UploadFile | None = None,
@@ -50,6 +55,10 @@ async def normalize_upload_payload(
         raise HTTPException(status_code=400, detail="Invalid pitch style.")
     if not 0 <= int(pitch_strength) <= 100:
         raise HTTPException(status_code=400, detail="Pitch strength must be between 0 and 100.")
+    if not 0 <= int(soften_amount) <= 100:
+        raise HTTPException(status_code=400, detail="Soften amount must be between 0 and 100.")
+    if not 0 <= int(light_reverb_amount) <= 100:
+        raise HTTPException(status_code=400, detail="Light reverb amount must be between 0 and 100.")
 
     reference_duration_ratio_min = float(reference_duration_ratio_min)
     reference_duration_ratio_max = float(reference_duration_ratio_max)
@@ -109,6 +118,7 @@ async def normalize_upload_payload(
         "steps": ProcessingSteps(
             noiseReduction=noise_reduction,
             pitchCorrection=pitch_correction,
+            softenVoice=soften_voice,
             polish=polish,
             sceneEnhancement=scene_enhancement,
         ),
@@ -121,5 +131,10 @@ async def normalize_upload_payload(
             **midi_settings,
             **reference_settings,
         ),
+        "polishSettings": PolishSettings(
+            softenAmount=int(soften_amount),
+            lightReverbAmount=int(light_reverb_amount),
+        ),
     }
     return payload, content, midi_content, reference_content
+

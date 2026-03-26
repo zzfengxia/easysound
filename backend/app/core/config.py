@@ -25,6 +25,7 @@ INPUT_MODES = {
 DEFAULT_PROCESSING_STEPS = {
     "noiseReduction": True,
     "pitchCorrection": True,
+    "softenVoice": True,
     "polish": True,
     "sceneEnhancement": True,
 }
@@ -43,8 +44,11 @@ PITCH_STYLES = {
 DEFAULT_PITCH_MODE = PITCH_MODES["AUTO_SCALE"]
 DEFAULT_PITCH_STYLE = PITCH_STYLES["NATURAL"]
 DEFAULT_PITCH_STRENGTH = 55
+DEFAULT_SOFTEN_AMOUNT = 55
+DEFAULT_LIGHT_REVERB_AMOUNT = 45
 DEFAULT_REFERENCE_DURATION_RATIO_MIN = 0.6
 DEFAULT_REFERENCE_DURATION_RATIO_MAX = 1.67
 
 FFMPEG_PATH = Path(r"D:\soft202502\ffmpeg-2025-04-23\bin\ffmpeg.exe")
 FFPROBE_PATH = Path(r"D:\soft202502\ffmpeg-2025-04-23\bin\ffprobe.exe")
+
