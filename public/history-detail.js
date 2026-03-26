@@ -102,6 +102,7 @@ function buildInputFiles(task) {
       label: "原始音频",
       name: task.originalName,
       href: toUploadUrl(task.storedName),
+      previewable: true,
     }
   ];
 
@@ -110,6 +111,7 @@ function buildInputFiles(task) {
       label: "MIDI 参考",
       name: task.pitch?.midiOriginalName || task.pitch?.midiStoredName,
       href: toUploadUrl(task.pitch?.midiStoredName),
+      previewable: false,
     });
   }
 
@@ -118,6 +120,7 @@ function buildInputFiles(task) {
       label: "参考干声",
       name: task.pitch?.referenceOriginalName || task.pitch?.referenceStoredName,
       href: toUploadUrl(task.pitch?.referenceStoredName),
+      previewable: true,
     });
   }
 
@@ -133,6 +136,7 @@ function buildOutputFiles(task) {
       label: "处理结果",
       name: getFileName(task.resultPath) || "处理结果.mp3",
       href: task.resultUrl,
+      previewable: false,
     }
   ];
 }
@@ -238,13 +242,27 @@ function fillFiles(element, files) {
     meta.appendChild(name);
     row.appendChild(meta);
 
+    const actions = document.createElement("div");
+    actions.className = "history-detail-file-actions";
+
     if (file.href) {
       const link = document.createElement("a");
       link.className = "subtle-link-button";
       link.href = file.href;
       link.download = file.name || "download";
       link.textContent = "下载";
-      row.appendChild(link);
+      actions.appendChild(link);
+    }
+
+    row.appendChild(actions);
+
+    if (file.previewable && file.href) {
+      const audio = document.createElement("audio");
+      audio.className = "history-audio history-detail-inline-audio";
+      audio.controls = true;
+      audio.preload = "none";
+      audio.src = file.href;
+      row.appendChild(audio);
     }
 
     element.appendChild(row);

@@ -223,5 +223,6 @@ class AudioPipeline:
         source_name = original_name or "audio"
         stem = Path(source_name).stem.strip() or "audio"
         safe_stem = re.sub(r'[\\/:*?"<>|]+', "_", stem).strip(" .") or "audio"
-        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         return f"{safe_stem}-处理-{timestamp}.mp3"
+

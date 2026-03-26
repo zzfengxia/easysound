@@ -1451,3 +1451,36 @@ legend {
   outline: 2px solid rgba(15, 118, 110, 0.18);
   border-color: rgba(15, 118, 110, 0.45);
 }
+
+.history-detail-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.history-detail-file-audio {
+  width: min(320px, 100%);
+  margin-top: 0;
+}
+
+.history-detail-file-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.history-detail-file-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.history-detail-file-actions {
+  justify-content: flex-start;
+}
+
+.history-detail-inline-audio {
+  margin-top: 12px;
+}
