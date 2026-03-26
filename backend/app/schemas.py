@@ -42,6 +42,11 @@ class PolishSettings(BaseModel):
     lightReverbAmount: int = 45
 
 
+class MixSettings(BaseModel):
+    vocalMixAmount: int = 60
+    backingMixAmount: int = 45
+
+
 class TimelineEntry(BaseModel):
     stage: str
     at: str
@@ -68,6 +73,7 @@ class TaskRecord(BaseModel):
     steps: ProcessingSteps
     pitch: PitchSettings = Field(default_factory=PitchSettings)
     polishSettings: PolishSettings = Field(default_factory=PolishSettings)
+    mixSettings: MixSettings = Field(default_factory=MixSettings)
     status: TaskStatus
     progress: int = 0
     currentStage: str = "queued"
@@ -89,6 +95,7 @@ class ConfigResponse(BaseModel):
     inputModes: dict[str, str]
     defaultSteps: ProcessingSteps
     defaultPolish: PolishSettings
+    defaultMix: MixSettings
     pitchModes: dict[str, str]
     pitchStyles: dict[str, str]
     defaultPitch: PitchSettings
@@ -101,4 +108,3 @@ class TaskEnvelope(BaseModel):
 
 class TaskListEnvelope(BaseModel):
     tasks: list[TaskRecord]
-

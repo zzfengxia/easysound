@@ -3,8 +3,9 @@
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
-from time import monotonic, time
+from time import monotonic
 
 from app.core.config import INPUT_MODES, MAX_DURATION_SECONDS, MIN_SAMPLE_RATE, RESULT_DIR, TEMP_DIR
 from app.core.scene_presets import get_scene_preset
@@ -65,7 +66,7 @@ class AudioPipeline:
         backing_path = None
 
         if task.steps.noiseReduction:
-            await mark_stage("cleanup", "正在做降噪、去齿音和基础清理。")
+            await mark_stage("cleanup", "正在做降噪、去齿音和基础清理，并增强首尾无人声区的抑噪。")
             cleaned_path = temp_dir / "02-cleanup.wav"
             await self.providers["audio"].cleanup_noise(current_path, cleaned_path)
             current_path = cleaned_path
@@ -77,7 +78,7 @@ class AudioPipeline:
             current_path = separated["vocalPath"]
             backing_path = separated["instrumentalPath"]
             await self.task_store.add_warning(task.id, separated["note"])
-            logger.info("人声分离完成，任务ID=%s，提示=%s", task.id, separated["note"])
+            logger.info("人声分离完成，任务ID=%s，提示=%s，分离输出采用中性电平。", task.id, separated["note"])
             await complete_stage("separation")
 
         if task.steps.pitchCorrection:
@@ -146,15 +147,38 @@ class AudioPipeline:
         if task.inputMode == INPUT_MODES["MIX"] and backing_path is not None:
             await mark_stage("mixdown", "正在将处理后的人声回混到伴奏中。")
             remixed_path = temp_dir / "08-mix.wav"
-            await self.providers["audio"].remix(current_path, backing_path, remixed_path)
-            current_path = remixed_path
+            logger.info(
+                "开始回混，任务ID=%s，输入模式=%s，人声参数=%s，伴奏参数=%s",
+                task.id,
+                task.inputMode,
+                task.mixSettings.vocalMixAmount,
+                task.mixSettings.backingMixAmount,
+            )
+            remixed = await self.providers["audio"].remix(
+                current_path,
+                backing_path,
+                remixed_path,
+                vocal_mix_amount=task.mixSettings.vocalMixAmount,
+                backing_mix_amount=task.mixSettings.backingMixAmount,
+            )
+            current_path = Path(remixed["outputPath"])
+            logger.info(
+                "回混完成，任务ID=%s，人声倍率=%.3f，伴奏倍率=%.3f",
+                task.id,
+                remixed["vocalGain"],
+                remixed["backingGain"],
+            )
+            await self.task_store.add_processing_note(
+                task.id,
+                f"Mix balance: vocal {task.mixSettings.vocalMixAmount} ({remixed['vocalGain']:.3f}x), backing {task.mixSettings.backingMixAmount} ({remixed['backingGain']:.3f}x)",
+            )
             await complete_stage("mixdown")
 
-        await mark_stage("loudness", "正在统一整首音量，让输出响度更均匀自然。")
+        await mark_stage("loudness", "正在统一整首音量，并再做一层首尾无人声区的收口抑噪。")
         loudness_path = temp_dir / "09-loudness.wav"
         await self.providers["audio"].normalize_loudness(current_path, loudness_path)
         current_path = loudness_path
-        logger.info("响度统一完成，任务ID=%s，策略=稳妥自然（轻压缩 + 动态平滑 + loudnorm + limiter）", task.id)
+        logger.info("响度统一完成，任务ID=%s，策略=稳妥自然（轻压缩 + 动态平滑 + loudnorm + 首尾收口抑噪 + limiter）", task.id)
         await complete_stage("loudness")
 
         await mark_stage("export", "正在导出最终成品音频。")
@@ -172,6 +196,7 @@ class AudioPipeline:
             "steps": task.steps.model_dump(),
             "pitch": refreshed.pitch.model_dump() if refreshed else task.pitch.model_dump(),
             "polishSettings": refreshed.polishSettings.model_dump() if refreshed else task.polishSettings.model_dump(),
+            "mixSettings": refreshed.mixSettings.model_dump() if refreshed else task.mixSettings.model_dump(),
             "warnings": refreshed.warnings if refreshed else [],
             "processingNotes": refreshed.processingNotes if refreshed else [],
             "preset": get_scene_preset(task.scenePreset),
@@ -198,6 +223,5 @@ class AudioPipeline:
         source_name = original_name or "audio"
         stem = Path(source_name).stem.strip() or "audio"
         safe_stem = re.sub(r'[\\/:*?"<>|]+', "_", stem).strip(" .") or "audio"
-        timestamp = int(time())
+        timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         return f"{safe_stem}-处理-{timestamp}.mp3"
-

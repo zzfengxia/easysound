@@ -64,6 +64,26 @@
             </label>
           </fieldset>
 
+          <div id="mix-controls" class="field-group" hidden>
+            <fieldset>
+              <legend>回混平衡</legend>
+              <div class="threshold-block">
+                <div class="threshold-head">
+                  <strong>人声音量 <span id="vocalMixAmountValue">60</span></strong>
+                  <small>只在带伴奏模式下生效。数值越高，分离后回混时人声越靠前、越容易被听清。</small>
+                </div>
+                <input id="vocalMixAmount" name="vocalMixAmount" type="range" min="0" max="100" value="60" />
+              </div>
+              <div class="threshold-block">
+                <div class="threshold-head">
+                  <strong>伴奏音量 <span id="backingMixAmountValue">45</span></strong>
+                  <small>只在带伴奏模式下生效。数值越高，背景音乐越突出；数值越低，人声会更靠前。</small>
+                </div>
+                <input id="backingMixAmount" name="backingMixAmount" type="range" min="0" max="100" value="45" />
+              </div>
+            </fieldset>
+          </div>
+
           <fieldset class="field-group">
             <legend>处理步骤</legend>
             <label class="toggle-row"><input type="checkbox" name="noiseReduction" checked /> 降噪与去杂音</label>
@@ -223,4 +243,3 @@
     <script type="module" src="/app.js"></script>
   </body>
 </html>
-

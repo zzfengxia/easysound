@@ -8,6 +8,7 @@ const clearTasksButton = document.querySelector("#clear-tasks-button");
 const midiUploadBlock = document.querySelector("#midi-upload-block");
 const referenceUploadBlock = document.querySelector("#reference-upload-block");
 const referenceThresholdBlock = document.querySelector("#reference-threshold-block");
+const mixControls = document.querySelector("#mix-controls");
 const softenControls = document.querySelector("#soften-controls");
 const lightReverbControls = document.querySelector("#light-reverb-controls");
 const pitchStrength = document.querySelector("#pitchStrength");
@@ -16,6 +17,10 @@ const softenAmount = document.querySelector("#softenAmount");
 const softenAmountValue = document.querySelector("#softenAmountValue");
 const lightReverbAmount = document.querySelector("#lightReverbAmount");
 const lightReverbAmountValue = document.querySelector("#lightReverbAmountValue");
+const vocalMixAmount = document.querySelector("#vocalMixAmount");
+const vocalMixAmountValue = document.querySelector("#vocalMixAmountValue");
+const backingMixAmount = document.querySelector("#backingMixAmount");
+const backingMixAmountValue = document.querySelector("#backingMixAmountValue");
 const referenceDurationRatioMin = document.querySelector("#referenceDurationRatioMin");
 const referenceDurationRatioMax = document.querySelector("#referenceDurationRatioMax");
 
@@ -24,6 +29,7 @@ let presetsById = {};
 let defaultPitchConfig = null;
 let defaultStepConfig = null;
 let defaultPolishConfig = null;
+let defaultMixConfig = null;
 
 async function init() {
   const response = await fetch("/api/config");
@@ -31,10 +37,12 @@ async function init() {
   defaultPitchConfig = config.defaultPitch;
   defaultStepConfig = config.defaultSteps;
   defaultPolishConfig = config.defaultPolish;
+  defaultMixConfig = config.defaultMix;
   presetsById = Object.fromEntries(config.presets.map((preset) => [preset.id, preset]));
   renderPresets(config.presets);
   initializePitchControls(config.defaultPitch);
   initializeProcessingControls(config.defaultPolish);
+  initializeMixControls(config.defaultMix);
   initializeTaskActions();
   await refreshTasks();
   setInterval(refreshTasks, 2000);
@@ -66,12 +74,26 @@ function initializeProcessingControls(defaultPolish) {
   lightReverbAmount.addEventListener("input", () => {
     lightReverbAmountValue.textContent = lightReverbAmount.value;
   });
-  form.noiseReduction.addEventListener("change", syncProcessingControls);
-  form.pitchCorrection.addEventListener("change", syncProcessingControls);
   form.softenVoice.addEventListener("change", syncProcessingControls);
   form.polish.addEventListener("change", syncProcessingControls);
-  form.sceneEnhancement.addEventListener("change", syncProcessingControls);
   syncProcessingControls();
+}
+
+function initializeMixControls(defaultMix) {
+  vocalMixAmount.value = defaultMix?.vocalMixAmount ?? 60;
+  vocalMixAmountValue.textContent = vocalMixAmount.value;
+  backingMixAmount.value = defaultMix?.backingMixAmount ?? 45;
+  backingMixAmountValue.textContent = backingMixAmount.value;
+  vocalMixAmount.addEventListener("input", () => {
+    vocalMixAmountValue.textContent = vocalMixAmount.value;
+  });
+  backingMixAmount.addEventListener("input", () => {
+    backingMixAmountValue.textContent = backingMixAmount.value;
+  });
+  form.querySelectorAll('input[name="inputMode"]').forEach((input) => {
+    input.addEventListener("change", syncInputModeUI);
+  });
+  syncInputModeUI();
 }
 
 function initializeTaskActions() {
@@ -103,6 +125,12 @@ function initializeTaskActions() {
 function setBlockVisible(element, visible) {
   element.hidden = !visible;
   element.style.display = visible ? "block" : "none";
+}
+
+function syncInputModeUI() {
+  const inputMode = form.querySelector('input[name="inputMode"]:checked')?.value;
+  const showMix = inputMode === "with_backing_track";
+  setBlockVisible(mixControls, showMix);
 }
 
 function syncPitchModeUI() {
@@ -276,7 +304,10 @@ function buildTaskSubtitle(task, preset) {
   const pitchStyle = task.pitch?.pitchStyle === "autotune" ? "Auto-Tune" : "自然修音";
   const soften = task.polishSettings?.softenAmount ?? 55;
   const reverb = task.polishSettings?.lightReverbAmount ?? 45;
-  return `${mode} · ${scene} · ${pitchMode} · ${pitchStyle} · 柔和 ${soften} · 轻混响 ${reverb}`;
+  const mixPart = task.inputMode === "with_backing_track"
+    ? ` · 人声 ${task.mixSettings?.vocalMixAmount ?? 60} · 伴奏 ${task.mixSettings?.backingMixAmount ?? 45}`
+    : "";
+  return `${mode} · ${scene} · ${pitchMode} · ${pitchStyle}${mixPart} · 柔和 ${soften} · 轻混响 ${reverb}`;
 }
 
 function formatPitchMode(mode) {
@@ -362,6 +393,8 @@ form.addEventListener("submit", async (event) => {
   data.set("pitchStrength", String(form.pitchStrength.value));
   data.set("softenAmount", String(form.softenAmount.value));
   data.set("lightReverbAmount", String(form.lightReverbAmount.value));
+  data.set("vocalMixAmount", String(form.vocalMixAmount.value));
+  data.set("backingMixAmount", String(form.backingMixAmount.value));
   data.set("pitchMode", selectedPitchMode);
   if (selectedPitchMode === "reference_vocal") {
     data.set("referenceDurationRatioMin", Number.parseFloat(referenceDurationRatioMin.value).toFixed(2));
@@ -381,6 +414,7 @@ form.addEventListener("submit", async (event) => {
 
   form.reset();
   selectedPreset = "concert";
+  form.querySelector('input[name="inputMode"][value="vocals_only"]').checked = true;
   form.noiseReduction.checked = defaultStepConfig?.noiseReduction ?? true;
   form.pitchCorrection.checked = defaultStepConfig?.pitchCorrection ?? true;
   form.softenVoice.checked = defaultStepConfig?.softenVoice ?? true;
@@ -392,10 +426,15 @@ form.addEventListener("submit", async (event) => {
   softenAmountValue.textContent = defaultPolishConfig?.softenAmount || 55;
   lightReverbAmount.value = defaultPolishConfig?.lightReverbAmount || 45;
   lightReverbAmountValue.textContent = defaultPolishConfig?.lightReverbAmount || 45;
+  vocalMixAmount.value = defaultMixConfig?.vocalMixAmount || 60;
+  vocalMixAmountValue.textContent = defaultMixConfig?.vocalMixAmount || 60;
+  backingMixAmount.value = defaultMixConfig?.backingMixAmount || 45;
+  backingMixAmountValue.textContent = defaultMixConfig?.backingMixAmount || 45;
   form.pitchStyle.value = defaultPitchConfig?.pitchStyle || "natural";
   referenceDurationRatioMin.value = Number(defaultPitchConfig?.referenceDurationRatioMin || 0.6).toFixed(2);
   referenceDurationRatioMax.value = Number(defaultPitchConfig?.referenceDurationRatioMax || 1.67).toFixed(2);
   form.querySelector('input[name="pitchMode"][value="auto_scale"]').checked = true;
+  syncInputModeUI();
   syncPitchModeUI();
   syncProcessingControls();
   renderPresets(Object.values(presetsById));
@@ -406,4 +445,3 @@ form.addEventListener("submit", async (event) => {
 init().catch((error) => {
   submitMessage.textContent = error.message;
 });
-

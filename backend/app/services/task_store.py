@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.config import TASK_DIR, TEMP_DIR
-from app.schemas import PitchSettings, TaskRecord
+from app.schemas import MixSettings, PitchSettings, PolishSettings, TaskRecord
 
 
 def utc_now() -> str:
@@ -27,6 +27,16 @@ class TaskStore:
             else:
                 pitch_data = PitchSettings.model_validate(data["pitch"])
                 data["pitch"] = pitch_data.model_dump()
+            if "polishSettings" not in data:
+                data["polishSettings"] = PolishSettings().model_dump()
+            else:
+                polish_data = PolishSettings.model_validate(data["polishSettings"])
+                data["polishSettings"] = polish_data.model_dump()
+            if "mixSettings" not in data:
+                data["mixSettings"] = MixSettings().model_dump()
+            else:
+                mix_data = MixSettings.model_validate(data["mixSettings"])
+                data["mixSettings"] = mix_data.model_dump()
             task = TaskRecord.model_validate(data)
             if task.status == "processing":
                 task.status = "queued"

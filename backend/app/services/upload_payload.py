@@ -7,6 +7,7 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import (
     ALLOWED_EXTENSIONS,
     ALLOWED_MIDI_EXTENSIONS,
+    DEFAULT_BACKING_MIX_AMOUNT,
     DEFAULT_LIGHT_REVERB_AMOUNT,
     DEFAULT_PITCH_MODE,
     DEFAULT_PITCH_STRENGTH,
@@ -15,6 +16,7 @@ from app.core.config import (
     DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     DEFAULT_REFERENCE_DURATION_RATIO_MIN,
     DEFAULT_SOFTEN_AMOUNT,
+    DEFAULT_VOCAL_MIX_AMOUNT,
     INPUT_MODES,
     MAX_FILE_SIZE_BYTES,
     MAX_MIDI_FILE_SIZE_BYTES,
@@ -23,7 +25,7 @@ from app.core.config import (
     PITCH_STYLES,
 )
 from app.core.scene_presets import DEFAULT_SCENE_PRESET, SCENE_PRESETS
-from app.schemas import PitchSettings, PolishSettings, ProcessingSteps
+from app.schemas import MixSettings, PitchSettings, PolishSettings, ProcessingSteps
 
 
 async def normalize_upload_payload(
@@ -40,6 +42,8 @@ async def normalize_upload_payload(
     pitch_strength: int = DEFAULT_PITCH_STRENGTH,
     soften_amount: int = DEFAULT_SOFTEN_AMOUNT,
     light_reverb_amount: int = DEFAULT_LIGHT_REVERB_AMOUNT,
+    vocal_mix_amount: int = DEFAULT_VOCAL_MIX_AMOUNT,
+    backing_mix_amount: int = DEFAULT_BACKING_MIX_AMOUNT,
     reference_duration_ratio_min: float = DEFAULT_REFERENCE_DURATION_RATIO_MIN,
     reference_duration_ratio_max: float = DEFAULT_REFERENCE_DURATION_RATIO_MAX,
     midi_file: UploadFile | None = None,
@@ -59,6 +63,10 @@ async def normalize_upload_payload(
         raise HTTPException(status_code=400, detail="Soften amount must be between 0 and 100.")
     if not 0 <= int(light_reverb_amount) <= 100:
         raise HTTPException(status_code=400, detail="Light reverb amount must be between 0 and 100.")
+    if not 0 <= int(vocal_mix_amount) <= 100:
+        raise HTTPException(status_code=400, detail="Vocal mix amount must be between 0 and 100.")
+    if not 0 <= int(backing_mix_amount) <= 100:
+        raise HTTPException(status_code=400, detail="Backing mix amount must be between 0 and 100.")
 
     reference_duration_ratio_min = float(reference_duration_ratio_min)
     reference_duration_ratio_max = float(reference_duration_ratio_max)
@@ -135,6 +143,9 @@ async def normalize_upload_payload(
             softenAmount=int(soften_amount),
             lightReverbAmount=int(light_reverb_amount),
         ),
+        "mixSettings": MixSettings(
+            vocalMixAmount=int(vocal_mix_amount),
+            backingMixAmount=int(backing_mix_amount),
+        ),
     }
     return payload, content, midi_content, reference_content
-
